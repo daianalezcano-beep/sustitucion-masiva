@@ -61,6 +61,7 @@ VERSION_FECHA = "2026-10-19"
 
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -1012,8 +1013,9 @@ def procesar_fila_aplicar(driver, ctx, row):
     # El pickup/drop-off también se carga en la ida: así los selectores de esos campos se prueban ANTES de
     # mover nada (si fallan, no hay nada que recuperar) y el provisorio conserva los datos como respaldo.
     llenar_modal(driver, loc, stype, psup, pcod, status0, pudo0 if reponer else None, "ida")
-    if not confirmar(f"IDA: mover {found0} reserva(s) de {loc}/{sup}/{stype}/{cod} (estado {status0}) "
-                     f"→ provisorio {loc}/{psup}/{stype}/{pcod}{' (con pickup/drop-off/remarks)' if reponer else ''}. Se hace click en OK."):
+    if not confirmar(f"{loc}/{sup}/{stype}/{cod}: {found0} reserva(s) (estado {status0}). IDA: mover al provisorio "
+                     f"{loc}/{psup}/{stype}/{pcod}{' (con pickup/drop-off/remarks)' if reponer else ''}. Después la VUELTA "
+                     f"(devolverlas al original) se hace sola y se verifica contra la foto inicial. Se hace click en el OK de la ida."):
         jc(driver, dialog_repl(driver).find_element(By.CSS_SELECTOR, "tp-button.cancel > button"))
         raise ErrorFila("ERROR: cancelado", "El usuario canceló antes del OK de la ida. No se movió nada.")
     n, ini, fin = agregar_filas_batch(ctx["ws_det"], ctx["cols_det"],
@@ -1045,11 +1047,7 @@ def procesar_fila_aplicar(driver, ctx, row):
         usado = seleccionar_todo(driver, found1)
         abrir_modal_reemplazo(driver, found1)
         llenar_modal(driver, loc, stype, sup, cod, status0, pudo0 if reponer else None, "vuelta")
-        if not confirmar(f"VUELTA: devolver {found1} reserva(s) del provisorio {loc}/{psup}/{stype}/{pcod} → original "
-                         f"{loc}/{sup}/{stype}/{cod} (estado {status0}"
-                         f"{', con pickup/drop-off/remarks' if reponer else ''}). Se hace click en OK."):
-            jc(driver, dialog_repl(driver).find_element(By.CSS_SELECTOR, "tp-button.cancel > button"))
-            raise ErrorFila("ERROR: cancelado", "El usuario canceló antes del OK de la vuelta (las reservas siguen en el provisorio)")
+        # La vuelta no pide confirmación: ya está confirmada la combinación y frenar acá dejaría reservas en el provisorio.
         obs.append("summary vuelta: " + ok_modal_y_summary(driver, "vuelta"))
         _fase_rango(ctx, rango, "VUELTA")
 
@@ -1057,9 +1055,13 @@ def procesar_fila_aplicar(driver, ctx, row):
         r2 = consultar(driver, ctx, loc, stype, sup, cod, desde, hasta)
         faltan, sobran = L.diferencia_multiconjunto(filas0, r2["filas"])
         paneles2 = leer_panel_filas(driver, r2["filas"]) if r2["found"] == found0 and r2["modo"] == "completa" else None
-        r3 = consultar(driver, ctx, loc, stype, psup, pcod, desde, hasta, leer=False)
-        if r3["found"] != 0:     # sustitutos sin asignar: es el caso que detiene toda la corrida
-            raise ErrorFila("ERROR: provisorio", f"El provisorio quedó con {r3['found']} reserva(s) tras la vuelta")
+        if r2["found"] == found0 and not faltan and not sobran:
+            # Todas las reservas de la foto están de vuelta en A y P estaba vacío antes de la ida: P quedó vacío.
+            print("    P no se vuelve a consultar: el original quedó idéntico a la foto, así que P está vacío")
+        else:
+            r3 = consultar(driver, ctx, loc, stype, psup, pcod, desde, hasta, leer=False)
+            if r3["found"] != 0:     # sustitutos sin asignar: es el caso que detiene toda la corrida
+                raise ErrorFila("ERROR: provisorio", f"El provisorio quedó con {r3['found']} reserva(s) tras la vuelta")
         diferencias = []
         if r2["found"] != found0:
             diferencias.append(f"el original tiene Found={r2['found']} y antes {found0}")
@@ -1149,7 +1151,39 @@ def exigir_sin_pendientes(ws_det):
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 
+class _ConHora:
+    """Antepone [HH:MM:SS] a cada línea que se imprime (consola de la app y consola.log). Las líneas en blanco no
+    llevan hora, y una línea que ya la trae no se vuelve a marcar (por si se instala dos veces)."""
+    _CON_HORA = re.compile(r"\[\d\d:\d\d:\d\d\] ")
+
+    def __init__(self, destino):
+        self._destino = destino
+        self._inicio_de_linea = True
+
+    def write(self, texto):
+        salida = []
+        for parte in texto.splitlines(keepends=True):
+            if self._inicio_de_linea and parte.strip() and not self._CON_HORA.match(parte):
+                salida.append(time.strftime("[%H:%M:%S] "))
+            salida.append(parte)
+            self._inicio_de_linea = parte.endswith("\n")
+        self._destino.write("".join(salida))
+        return len(texto)
+
+    def flush(self):
+        self._destino.flush()
+
+    def __getattr__(self, nombre):
+        return getattr(self._destino, nombre)
+
+
+def _instalar_hora():
+    sys.stdout = _ConHora(sys.stdout)
+    sys.stderr = _ConHora(sys.stderr)
+
+
 def main():
+    _instalar_hora()
     print("=" * 70)
     print(f"  📌 VERSION {VERSION} ({VERSION_FECHA}) · MODO={MODO} · VELOCIDAD={tp.VELOCIDAD}")
     print("  Doble sustitución — Substitute Service" + (" (modo lectura: nunca clickea OK)" if MODO == "lectura" else ""))
@@ -1173,6 +1207,7 @@ def main():
 
     t_inicio = time.time()
     carpeta, corrida = tp.preparar_carpeta_corrida(MODO)
+    _instalar_hora()    # ahora que consola.log existe, sus líneas también llevan la hora
     print(f"Corrida {corrida} · salida (capturas, HTML, JSON y consola.log): {os.path.abspath(carpeta)}")
     ws, filas, columnas, ws_det, cols_det = cargar_hojas()
     if MODO == "aplicar":

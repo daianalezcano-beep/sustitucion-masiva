@@ -89,8 +89,8 @@ class FlujoAplicar(unittest.TestCase):
             m.modal = (etiqueta, pudo)
 
         def confirmar(texto):
-            m.eventos.append("confirmar " + texto.split(":")[0])
-            return m.cancela_en != texto.split(":")[0]
+            m.eventos.append("confirmar")
+            return m.cancela_en is None
 
         def ok_summary(driver, etiqueta):
             m.eventos.append(f"OK {etiqueta}")
@@ -133,9 +133,12 @@ class FlujoAplicar(unittest.TestCase):
         # la guarda del provisorio va primero y una sola vez; la foto inicial lee el panel antes de la ida
         self.assertEqual(ev[0], "consultar P")
         self.assertLess(ev.index("leer_panel"), ev.index("OK ida"))
-        # confirmación antes de cada OK, y el detalle se escribe ANTES del OK de la ida
-        self.assertLess(ev.index("confirmar IDA"), ev.index("OK ida"))
-        self.assertLess(ev.index("confirmar VUELTA"), ev.index("OK vuelta"))
+        # UNA sola confirmación por combinación (antes de la ida; la vuelta va sola) y el detalle se escribe ANTES del OK de la ida
+        self.assertEqual(ev.count("confirmar"), 1)
+        self.assertLess(ev.index("confirmar"), ev.index("OK ida"))
+        self.assertLess(ev.index("OK ida"), ev.index("OK vuelta"))
+        # P se consulta 2 veces (guarda inicial + tras la ida): tras la vuelta no, porque A quedó idéntico a la foto
+        self.assertEqual(ev.count("consultar P"), 2)
         self.assertEqual(len(self.ws_det.filas), 2)                 # una fila de detalle por reserva
         self.assertEqual([u[1] for u in self.ws_det.updates][:2], ["IDA", "VUELTA"])
         self.assertEqual([u[1] for u in self.ws_det.updates][-2:], ["VERIFICADO", "VERIFICADO"])
@@ -216,24 +219,21 @@ class FlujoAplicar(unittest.TestCase):
         self.m.A = [fila("R9")]
         self.m.eventos.clear()
         sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
-        self.assertEqual(primero, 3)       # guarda + verificación de P tras la ida + comprobación final
-        self.assertEqual(self.m.eventos.count("consultar P"), 2)   # la guarda ya no se repite
+        self.assertEqual(primero, 2)       # guarda + verificación de P tras la ida (sin comprobación final: A quedó idéntico)
+        self.assertEqual(self.m.eventos.count("consultar P"), 1)   # la guarda ya no se repite
 
     def test_cancelar_en_la_ida_no_mueve_nada(self):
         with self.assertRaises(sd.ErrorFila) as cm:
-            self.correr(Mundo([fila("R1")], cancela_en="IDA"))
+            self.correr(Mundo([fila("R1")], cancela_en=True))
         self.assertEqual(cm.exception.estado, "ERROR: cancelado")
         self.assertNotIn("OK ida", self.m.eventos)
         self.assertIn("EXIT del modal", self.m.eventos)
         self.assertEqual(self.ws_det.filas, [])                 # el detalle se escribe recién antes del OK
 
-    def test_cancelar_en_la_vuelta_deja_colgadas(self):
-        with self.assertRaises(sd.ErrorFila) as cm:
-            self.correr(Mundo([fila("R1")], cancela_en="VUELTA"))
-        self.assertEqual(cm.exception.estado, "ERROR_COLGADAS")
-        self.assertEqual(len(self.m.P), 1)                      # siguen en el provisorio
-        self.assertNotIn("OK vuelta", self.m.eventos)
-        self.assertEqual(self.ws_det.updates[-1][1], "IDA")     # el detalle queda en fase IDA (= pendiente)
+    def test_la_vuelta_no_pide_confirmacion(self):
+        self.correr(Mundo([fila("R1")]))
+        self.assertEqual(self.m.eventos.count("confirmar"), 1)
+        self.assertLess(self.m.eventos.index("OK ida"), self.m.eventos.index("llenar_modal vuelta destino=1ACOS1/700GUI status=IT pudo=sí"))
 
     def test_falla_en_el_summary_de_la_ida_es_colgada(self):
         with self.assertRaises(sd.ErrorFila) as cm:
@@ -296,6 +296,22 @@ class SinPendientes(unittest.TestCase):
         self.assertIn("TOURPLAN_CONFIRMO_SIN_PENDIENTES=SI", str(cm.exception))
         sd.CONFIRMO_SIN_PENDIENTES = "SI"
         sd.exigir_sin_pendientes(ws)         # no levanta
+
+
+@unittest.skipIf(sd is None, "falta una dependencia para importar el script")
+class HoraEnCadaLinea(unittest.TestCase):
+    def test_marca_cada_linea_no_las_vacias_y_no_duplica(self):
+        import io
+        import re
+        destino = io.StringIO()
+        w = sd._ConHora(sd._ConHora(destino))      # instalada dos veces: la hora sale una sola vez
+        w.write("primera\n\nsegunda ")
+        w.write("sigue\ntercera\n")
+        lineas = destino.getvalue().split("\n")
+        self.assertRegex(lineas[0], r"^\[\d\d:\d\d:\d\d\] primera$")
+        self.assertEqual(lineas[1], "")
+        self.assertRegex(lineas[2], r"^\[\d\d:\d\d:\d\d\] segunda sigue$")   # una línea escrita en dos partes: una sola hora
+        self.assertEqual(len(re.findall(r"\[\d\d:\d\d:\d\d\]", destino.getvalue())), 3)
 
 
 if __name__ == "__main__":

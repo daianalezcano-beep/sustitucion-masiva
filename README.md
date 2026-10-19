@@ -23,10 +23,12 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
 - **Configuración** (una vez por PC; se comparte con la otra app de Tourplan): usuario y contraseña de Tourplan y URL del Sheet (la URL del Sheet se carga solo acá, no en la pantalla principal).
 - **Parámetros:** modo (solo revisar / aplicar), servicios desde (obligatoria; avisa si es anterior a hoy) y hasta (por defecto
   31/12/2049), tope de reservas por combinación, URL de Tourplan, "solo la fila nº" para probar una combinación.
-- **Modo aplicar:** exige tildar que se revisó a mano que no hay códigos `000000` pendientes. Con "pedir confirmación antes de cada OK"
-  (por defecto) el script se detiene antes de cada OK y la app muestra la pregunta con **Continuar / Cancelar** (y la captura del modal).
+- **Modo aplicar:** exige tildar que se revisó a mano que no hay códigos `000000` pendientes. Con "pedir confirmación antes de cada combinación"
+  (por defecto) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
+  **Continuar / Cancelar** (y la captura del modal). La vuelta se hace sola: frenar entre ida y vuelta dejaría reservas en el provisorio.
 - **Abortar:** corta al terminar la combinación en curso (completa) y hace logout.
-- **Consola en vivo**, descarga de la consola, y estado de la cola (Pendiente / OK / Error / Duplicado) con **Refrescar**.
+- **Consola en vivo** (cada línea con la hora `[HH:MM:SS]`), descarga de la consola, **historial de corridas** (las últimas 15 de la carpeta
+  `salida/`, con resultado y botón para descargar el `consola.log` de cada una), y estado de la cola (Pendiente / OK / Error / Duplicado) con **Refrescar**.
 - Si la corrida termina con el aviso **🛑 Corrida detenida** (ver abajo) no se procesó ninguna otra combinación.
 
 La app lanza `scripts/substitute_doble/substitute_doble.py` como subproceso con las mismas variables `TOURPLAN_*` de abajo.
@@ -83,8 +85,8 @@ python scripts\substitute_doble\substitute_doble.py
 - Por cada combinación: verifica que el provisorio (`<Location>/<proveedor>/<Service Type>/000000`) existe y no tiene reservas
   (una vez por corrida, todo el historial) → foto de las reservas del original (11 columnas + panel derecho) → **ida** original →
   provisorio → verifica el provisorio → **vuelta** provisorio → original (repone estado de servicio y pickup/drop-off/remarks) →
-  verificación final contra la foto → `ESTADO` `OK` / `ERROR_REVISAR` / `ERROR_COLGADAS`.
-- `TOURPLAN_CONFIRMAR_OK=1` (default): se detiene antes de cada OK y espera que se escriba `SI` en la consola (pensado para las
+  verificación final contra la foto (si el original quedó idéntico a la foto no se vuelve a consultar el provisorio: quedó vacío por construcción) → `ESTADO` `OK` / `ERROR_REVISAR` / `ERROR_COLGADAS`.
+- `TOURPLAN_CONFIRMAR_OK=1` (default): se detiene una vez por combinación, antes del OK de la ida, y espera que se escriba `SI` en la consola (pensado para las
   primeras pruebas; con `0` no pregunta).
 - `TOURPLAN_CONFIRMO_SIN_PENDIENTES=SI` es obligatorio: confirma que se revisó a mano que no quedan `000000` pendientes. Además el script
   no arranca si `SUBSTITUTE_DETALLE` tiene reservas en `FASE` `IDA_EN_CURSO` / `IDA` / `VUELTA` (una corrida anterior cortada).

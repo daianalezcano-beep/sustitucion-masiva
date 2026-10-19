@@ -2,7 +2,7 @@
 app.py — App local (Streamlit) de la doble sustitución de costos en Tourplan NX.
 
 Corre en la propia PC (igual que las otras apps del equipo): lanza scripts/substitute_doble/substitute_doble.py
-como subproceso, muestra su consola en vivo y permite abortar. Antes de cada OK en Tourplan (modo aplicar) el
+como subproceso, muestra su consola en vivo y permite abortar. Antes de cada combinación (modo aplicar) el
 script se detiene y la app muestra la pregunta con dos botones: Continuar / Cancelar.
 
 La lógica sin interfaz (validación, entorno del subproceso, estados de la cola, confirmación) está en
@@ -19,7 +19,7 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
@@ -176,7 +176,7 @@ def render_parametros(estado):
                    "estado de servicio y hasta 5 reservas con los mismos datos de pickup/drop-off.")
         confirmo = st.checkbox("Revisé a mano (reporte de Tourplan) que no hay códigos 000000 pendientes de sustituir",
                                disabled=bloqueado, key="confirmo")
-        confirmar_ok = st.checkbox("Pedir mi confirmación antes de cada OK en Tourplan (recomendado en las primeras pruebas)",
+        confirmar_ok = st.checkbox("Pedir mi confirmación antes de cada combinación (la vuelta se hace sola después de la ida; recomendado en las primeras pruebas)",
                                    value=True, disabled=bloqueado, key="confirmar_ok")
         with st.expander("Opciones avanzadas"):
             panel_max = st.number_input("Máximo de reservas por combinación en esta fase", min_value=1, max_value=20, value=5,
@@ -233,7 +233,7 @@ def render_en_vivo(estado):
                 "no toques la ventana de Chrome.")
         pregunta = E.confirmacion_pendiente(estado["run_dir"]) if estado["run_dir"] else None
         if pregunta:
-            st.warning("⏸️ **El script espera tu confirmación antes de hacer click en OK en Tourplan.**")
+            st.warning("⏸️ **El script espera tu confirmación antes de mover las reservas en Tourplan (ida; la vuelta va sola).**")
             st.code(pregunta, language=None)
             carpeta = _carpeta_de_salida(estado)
             if carpeta and carpeta.exists():
@@ -242,12 +242,12 @@ def render_en_vivo(estado):
                     st.image(str(imagenes[-1]), caption="Modal tal como quedó (también lo ves en la ventana de Chrome)")
             c1, c2 = st.columns(2)
             # El panel se refresca solo cada segundo: tras responder, el script borra la pregunta y desaparece.
-            if c1.button("✅ Continuar (hacer click en OK)", type="primary", key="conf_si", use_container_width=True):
+            if c1.button("✅ Continuar (hacer click en OK de la ida)", type="primary", key="conf_si", use_container_width=True):
                 E.responder_confirmacion(estado["run_dir"], True)
-                st.success("Respuesta enviada: el script continúa y hace click en OK.")
+                st.success("Respuesta enviada: el script hace el OK de la ida y sigue con la vuelta.")
             if c2.button("❌ Cancelar", key="conf_no", use_container_width=True):
                 E.responder_confirmacion(estado["run_dir"], False)
-                st.info("Respuesta enviada: se cancela este OK (no se ejecuta).")
+                st.info("Respuesta enviada: se cancela esta combinación (no se mueve nada).")
 
     c1, c2 = st.columns([4, 1])
     c1.markdown("**Consola**" + ("" if estado["running"] else " &nbsp; En espera"), unsafe_allow_html=True)
@@ -276,6 +276,55 @@ def render_cola(estado, sheet_url):
             col.metric(nombre, n)
     else:
         st.caption("Tocá Refrescar para ver cuántas filas hay Pendientes, OK o con Error.")
+
+
+# ── Historial de corridas ───────────────────────────────────────────────────
+
+HISTORIAL_MAX = 15
+
+
+def _historial_corridas(salida=None, limite=HISTORIAL_MAX):
+    """Las últimas corridas guardadas en salida/<modo>_<AAAAMMDD-HHMMSS>/ que tienen consola.log, de más nueva a más vieja."""
+    salida = Path(salida or SALIDA)
+    if not salida.is_dir():
+        return []
+    corridas = []
+    for carpeta in salida.iterdir():
+        m = re.fullmatch(r"(lectura|aplicar)_(\d{8})-(\d{6})", carpeta.name)
+        log = carpeta / "consola.log"
+        if not (m and carpeta.is_dir() and log.is_file()):
+            continue
+        try:
+            inicio = datetime.strptime(m.group(2) + m.group(3), "%Y%m%d%H%M%S")
+        except ValueError:
+            continue
+        corridas.append({"modo": m.group(1), "inicio": inicio, "carpeta": carpeta, "log": log})
+    corridas.sort(key=lambda c: c["inicio"], reverse=True)
+    return corridas[:limite]
+
+
+def _cierre_de_log(texto):
+    """Lo que el script imprime al terminar ('Duración: ... filas OK=.. ERROR=..'), o None si la corrida no llegó al final."""
+    m = re.search(r"🏁 Fin\.\s*(.+)", texto)
+    return m.group(1).strip() if m else None
+
+
+def render_historial(estado):
+    en_curso = _carpeta_de_salida(estado) if estado["running"] else None
+    with st.expander("🕘 Historial de corridas"):
+        corridas = _historial_corridas()
+        if not corridas:
+            st.caption("Todavía no hay corridas guardadas en la carpeta salida.")
+        for c in corridas:
+            texto = c["log"].read_text(encoding="utf-8", errors="replace")
+            actual = en_curso is not None and Path(en_curso).name == c["carpeta"].name
+            cierre = "en curso" if actual else (_cierre_de_log(texto) or "sin cierre (se interrumpió o no llegó al final)")
+            col_fecha, col_modo, col_res, col_desc = st.columns([2.2, 1.2, 6, 1.6])
+            col_fecha.write(c["inicio"].strftime("%d/%m/%Y %H:%M:%S"))
+            col_modo.write(c["modo"])
+            col_res.write(cierre)
+            col_desc.download_button("Descargar", data=texto, file_name=f"{c['carpeta'].name}.log", mime="text/plain",
+                                     icon=":material/download:", key=f"hist_{c['carpeta'].name}", use_container_width=True)
 
 
 # ── Página ──────────────────────────────────────────────────────────────────
@@ -322,6 +371,7 @@ def main():
 
     run_every = 1 if estado["running"] else None
     st.fragment(run_every=run_every)(render_en_vivo)(estado)
+    render_historial(estado)
 
 
 main()

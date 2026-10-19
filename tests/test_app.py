@@ -66,8 +66,8 @@ class App(unittest.TestCase):
         self.assertLess(pos("subheader", "Cola de trabajo"), pos("expander", "Configuración"))
         self.assertLess(pos("expander", "Configuración"), pos("expander", "Parámetros"))
         self.assertLess(pos("expander", "Parámetros"), pos("button", "Ejecutar"))       # Ejecutar queda fuera del plegable
-        self.assertEqual([e.label for e in at.expander][-1], "Parámetros")
-        self.assertTrue(at.expander[-1].proto.expanded)                                 # abierto cuando no hay corrida
+        parametros = next(e for e in at.expander if e.label == "Parámetros")
+        self.assertTrue(parametros.proto.expanded)                                      # abierto cuando no hay corrida
 
     def test_los_parametros_se_pliegan_solos_mientras_corre(self):
         self.configurar()
@@ -78,7 +78,7 @@ class App(unittest.TestCase):
             "stop_file": run_dir / "ABORTAR.flag", "run_dir": run_dir, "abort_pedido": False, "modo": "lectura",
             "inicio": 0, "mensaje": None, "conteo": None, "conteo_error": None}
         at.run()
-        self.assertFalse(at.expander[-1].proto.expanded)
+        self.assertFalse(next(e for e in at.expander if e.label == "Parámetros").proto.expanded)
 
     def test_boton_descargar_arriba_de_la_consola_y_sin_hueco_superior(self):
         self.configurar()
@@ -256,6 +256,36 @@ class App(unittest.TestCase):
         cfg = user_config.cargar()
         self.assertEqual((cfg["tp_usuario"], cfg["tp_password"]), ("nuevo_usuario", "clave"))
         self.assertEqual(cfg["sheet_urls"]["substitute_doble"], "https://docs.google.com/spreadsheets/d/AAA/edit")
+
+    def test_historial_lista_corridas_con_descarga_del_log(self):
+        self.configurar()
+        base = Path(RAIZ) / "salida"
+        base.mkdir(exist_ok=True)
+        carpetas = []
+        try:
+            for nombre, texto in (("aplicar_20990101-101010", "[10:10:10] 🏁 Fin. Duración: 3m 05s · filas OK=2 ERROR=0\n"),
+                                  ("lectura_20990101-090000", "[09:00:00] arrancó y se cortó\n")):
+                carpeta = base / nombre
+                carpeta.mkdir(exist_ok=True)
+                (carpeta / "consola.log").write_text(texto, encoding="utf-8")
+                carpetas.append(carpeta)
+            (base / "diag_ignorada").mkdir(exist_ok=True)       # no es una corrida: no se lista
+            carpetas.append(base / "diag_ignorada")
+            at = self.app()
+            self.assertFalse(at.exception)
+            self.assertEqual(at.expander[-1].label, "🕘 Historial de corridas")
+            textos = [m.value for m in at.expander[-1].markdown]
+            self.assertIn("01/01/2099 10:10:10", textos)
+            self.assertTrue(any("Duración: 3m 05s" in t for t in textos))
+            self.assertTrue(any("sin cierre" in t for t in textos))
+            self.assertLess(textos.index("01/01/2099 10:10:10"), textos.index("01/01/2099 09:00:00"))   # la más nueva primero
+            self.assertNotIn("diag_ignorada", " ".join(textos))
+            self.assertGreaterEqual(len([b for b in at.get("download_button") if b.proto.label == "Descargar"]), 3)  # consola + 2 corridas
+        finally:
+            for c in carpetas:
+                for f in c.glob("*"):
+                    f.unlink()
+                c.rmdir()
 
 
 if __name__ == "__main__":
