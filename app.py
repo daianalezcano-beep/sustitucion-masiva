@@ -11,6 +11,7 @@ common/ejecucion.py, que tiene sus propias pruebas.
 Correr:  streamlit run app.py   (en Windows: doble clic en run_app.bat)
 """
 
+import html
 import os
 import re
 import subprocess
@@ -77,6 +78,37 @@ def _carpeta_de_salida(estado):
     return None
 
 
+# ── Presentación ────────────────────────────────────────────────────────────
+
+CSS = """
+<style>
+/* Consola de altura fija; con column-reverse queda anclada a la última línea (mismo recurso que la otra app). */
+.sd-consola {
+    display: flex; flex-direction: column-reverse; overflow-y: auto; height: 340px;
+    background: #F0F2F6; color: #31333F; border: 1px solid #D5D9E2; border-radius: 6px; padding: 8px 12px;
+    font-family: "Source Code Pro", "SFMono-Regular", Consolas, "Courier New", monospace; font-size: 12.5px; line-height: 21px;
+}
+.sd-linea { white-space: pre-wrap; word-break: break-word; }
+.sd-vacia { color: #6b7280; }
+.sd-subtitulo { font-size: 0.95rem; color: #6b7280; margin-top: -0.9rem; margin-bottom: 0.6rem; }
+</style>
+"""
+
+
+def html_consola(lineas):
+    """HTML de la consola: cada línea escapada, en orden inverso dentro de un contenedor column-reverse (la última
+    línea queda abajo y visible). Todo en una sola línea para que Markdown no lo parta."""
+    if lineas:
+        cuerpo = "".join(f'<div class="sd-linea">{html.escape(l.rstrip(chr(10)))}</div>' for l in reversed(lineas[-500:]))
+    else:
+        cuerpo = '<div class="sd-linea sd-vacia">Sin salida todavía. Acá aparece la consola y sigue la última línea.</div>'
+    return f'<div class="sd-consola">{cuerpo}</div>'
+
+
+def _sheet_url_guardada():
+    return user_config.cargar().get("sheet_urls", {}).get(CLAVE_SHEET, "")
+
+
 # ── Configuración (una vez por PC) ──────────────────────────────────────────
 
 def render_configuracion():
@@ -121,7 +153,7 @@ def render_parametros(estado):
                                    disabled=bloqueado, key="max_reservas",
                                    help="Si una combinación tiene más reservas, termina en ERROR sin leer ni tocar nada.")
 
-    sheet_url = cfg.get("sheet_urls", {}).get(CLAVE_SHEET, "")     # se carga solo en ⚙️ Configuración
+    sheet_url = _sheet_url_guardada()                              # se carga solo en ⚙️ Configuración
     c4, c5 = st.columns([3, 1])
     base_url = c4.text_input("URL de Tourplan", value=PRODUCCION_URL, disabled=bloqueado, key="base_url",
                              help="Viene con producción. Cambiala solo si querés probar a propósito contra otro ambiente.")
@@ -182,6 +214,7 @@ def render_en_vivo(estado):
     if estado["running"] and estado["finished"]:
         estado["running"] = False
         estado["mensaje"] = _mensaje_final(estado["returncode"], estado["modo"])
+        _refrescar_conteo(estado, _sheet_url_guardada())      # la cola está arriba: que refleje el resultado
         st.rerun()
 
     if estado["running"]:
@@ -207,8 +240,7 @@ def render_en_vivo(estado):
                 st.info("Respuesta enviada: se cancela este OK (no se ejecuta).")
 
     st.markdown("**Consola**" + ("" if estado["running"] else " &nbsp; En espera"), unsafe_allow_html=True)
-    texto = "".join(estado["log_lines"][-400:])
-    st.code(texto or "(sin salida todavía)", language=None, height=360)
+    st.markdown(html_consola(estado["log_lines"]), unsafe_allow_html=True)
     c1, c2 = st.columns([3, 1])
     carpeta = _carpeta_de_salida(estado)
     if carpeta:
@@ -223,7 +255,7 @@ def render_en_vivo(estado):
 
 def render_cola(estado, sheet_url):
     c1, c2 = st.columns([4, 1])
-    c1.caption("Estado de la hoja SUBSTITUTE.")
+    c1.subheader("Cola de trabajo")
     if c2.button("🔄 Refrescar", disabled=estado["running"] or not sheet_url, use_container_width=True, key="refrescar"):
         _refrescar_conteo(estado, sheet_url)
     if estado["conteo_error"]:
@@ -232,23 +264,28 @@ def render_cola(estado, sheet_url):
         cols = st.columns(5)
         for col, (nombre, n) in zip(cols, estado["conteo"].items()):
             col.metric(nombre, n)
+    else:
+        st.caption("Tocá Refrescar para ver cuántas filas hay Pendientes, OK o con Error.")
 
 
 # ── Página ──────────────────────────────────────────────────────────────────
 
 def main():
-    st.set_page_config(page_title="Doble sustitución - Tourplan NX", page_icon="🔁", layout="wide")
+    st.set_page_config(page_title="Actualización de costos", page_icon="🔁", layout="wide")
+    st.markdown(CSS, unsafe_allow_html=True)
     estado = _estado()
 
-    st.title("Doble sustitución de costos")
-    st.caption("Actualiza el costo de los servicios ya cargados en reservas (Booking Operations → Substitute Service), "
-               "sin cambiar la venta: original → provisorio 000000 → original.")
+    st.title("Actualización de costos")
+    st.markdown('<div class="sd-subtitulo">mediante sustitución de costos</div>', unsafe_allow_html=True)
+
+    render_cola(estado, _sheet_url_guardada())
 
     with st.expander("⚙️ Configuración (usuario de Tourplan, Sheet)", expanded=not user_config.tp_credenciales_default()[0]):
         render_configuracion()
 
-    st.subheader("Parámetros")
-    p = render_parametros(estado)
+    # Los parámetros se pueden plegar; al arrancar una corrida se pliegan solos para dejar lugar a la consola.
+    with st.expander("Parámetros", expanded=not estado["running"]):
+        p = render_parametros(estado)
 
     errores = E.validar_parametros(p)
     for aviso in E.advertencias(p):
@@ -275,9 +312,6 @@ def main():
 
     run_every = 1 if estado["running"] else None
     st.fragment(run_every=run_every)(render_en_vivo)(estado)
-
-    st.subheader("Cola de trabajo")
-    render_cola(estado, p["sheet_url"])
 
 
 main()

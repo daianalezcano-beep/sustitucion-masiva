@@ -50,10 +50,76 @@ class App(unittest.TestCase):
     def boton(self, at, texto):
         return next(b for b in at.button if texto in b.label)
 
+    @staticmethod
+    def _aplanar(bloque):
+        for hijo in bloque.children.values():
+            yield hijo
+            if hasattr(hijo, "children"):
+                yield from App._aplanar(hijo)
+
+    def test_orden_de_la_pantalla_cola_arriba_y_parametros_plegables(self):
+        self.configurar()
+        at = self.app()
+        self.assertFalse(at.exception)
+        tipos = [(e.type, getattr(e, "label", None) or getattr(e, "value", None)) for e in self._aplanar(at.main)]
+        pos = lambda tipo, texto: next(i for i, (t, v) in enumerate(tipos) if t == tipo and texto in str(v))
+        self.assertLess(pos("subheader", "Cola de trabajo"), pos("expander", "Configuración"))
+        self.assertLess(pos("expander", "Configuración"), pos("expander", "Parámetros"))
+        self.assertLess(pos("expander", "Parámetros"), pos("button", "Ejecutar"))       # Ejecutar queda fuera del plegable
+        self.assertEqual([e.label for e in at.expander][-1], "Parámetros")
+        self.assertTrue(at.expander[-1].proto.expanded)                                 # abierto cuando no hay corrida
+
+    def test_los_parametros_se_pliegan_solos_mientras_corre(self):
+        self.configurar()
+        run_dir = Path(tempfile.mkdtemp())
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_corrida"] = {
+            "running": True, "finished": False, "log_lines": [], "returncode": None, "proc": None,
+            "stop_file": run_dir / "ABORTAR.flag", "run_dir": run_dir, "abort_pedido": False, "modo": "lectura",
+            "inicio": 0, "mensaje": None, "conteo": None, "conteo_error": None}
+        at.run()
+        self.assertFalse(at.expander[-1].proto.expanded)
+
+    def test_consola_altura_fija_escapada_y_con_la_ultima_linea_primero(self):
+        self.configurar()
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_corrida"] = {
+            "running": False, "finished": False, "log_lines": ["primera\n", "<b>negrita</b> & más\n", "ULTIMA\n"],
+            "returncode": None, "proc": None, "stop_file": None, "run_dir": None, "abort_pedido": False, "modo": "lectura",
+            "inicio": None, "mensaje": None, "conteo": None, "conteo_error": None}
+        at.run()
+        self.assertFalse(at.exception)
+        consola = next(m.value for m in at.markdown if 'class="sd-consola"' in m.value)
+        self.assertNotIn("<b>negrita</b>", consola)
+        self.assertIn("&lt;b&gt;negrita&lt;/b&gt; &amp; más", consola)
+        # column-reverse: la última línea es la primera del HTML y queda visible abajo
+        self.assertLess(consola.index("ULTIMA"), consola.index("primera"))
+        self.assertNotIn("\n", consola)                                                  # una sola línea: Markdown no la parte
+        css = next(m.value for m in at.markdown if "column-reverse" in m.value and "height: 340px" in m.value)
+        self.assertIn("overflow-y: auto", css)
+
+    def test_al_terminar_refresca_la_cola(self):
+        self.configurar()
+        run_dir = Path(tempfile.mkdtemp())
+        ws = object()
+        filas = [{"ESTADO": "PENDIENTE"}, {"ESTADO": "PENDIENTE"}, {"ESTADO": "OK"}, {"ESTADO": "ERROR_COLGADAS"}]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_corrida"] = {
+            "running": True, "finished": True, "log_lines": ["x\n"], "returncode": 0, "proc": None, "stop_file": None,
+            "run_dir": run_dir, "abort_pedido": False, "modo": "lectura", "inicio": 0, "mensaje": None, "conteo": None,
+            "conteo_error": None}
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=ws), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO"])):
+            at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual({m.label: m.value for m in at.metric},
+                         {"Pendiente": "2", "OK": "1", "Error": "1", "Duplicado": "0", "Otro": "0"})
+
     def test_renderiza_y_sin_configurar_no_se_puede_ejecutar(self):
         at = self.app()
         self.assertFalse(at.exception)
-        self.assertEqual(at.title[0].value, "Doble sustitución de costos")
+        self.assertEqual(at.title[0].value, "Actualización de costos")
+        self.assertTrue(any("mediante sustitución de costos" in m.value for m in at.markdown))
         self.assertTrue(self.boton(at, "Ejecutar").disabled)
         self.assertTrue(any("usuario" in c.value for c in at.caption))
 
@@ -163,7 +229,8 @@ class App(unittest.TestCase):
                 "running": True, "finished": True, "log_lines": ["x\n"], "returncode": rc, "proc": None,
                 "stop_file": None, "run_dir": None, "abort_pedido": False, "modo": "aplicar", "inicio": 0,
                 "mensaje": None, "conteo": None, "conteo_error": None}
-            at.run()
+            with mock.patch("common.sheets_client.conectar_sheets", side_effect=RuntimeError("sin red en la prueba")):
+                at.run()
             self.assertFalse(at.exception, rc)
             mensajes = getattr(at, tipo)
             self.assertTrue(any(texto in m.value for m in mensajes), (rc, [m.value for m in mensajes]))
@@ -173,7 +240,7 @@ class App(unittest.TestCase):
         at.text_input[0].set_value("nuevo_usuario")
         at.text_input[1].set_value("clave")
         at.text_input[2].set_value("https://docs.google.com/spreadsheets/d/AAA/edit")
-        at.button[0].click().run()
+        self.boton(at, "Guardar").click().run()
         cfg = user_config.cargar()
         self.assertEqual((cfg["tp_usuario"], cfg["tp_password"]), ("nuevo_usuario", "clave"))
         self.assertEqual(cfg["sheet_urls"]["substitute_doble"], "https://docs.google.com/spreadsheets/d/AAA/edit")
