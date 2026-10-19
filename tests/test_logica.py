@@ -62,49 +62,74 @@ class InputYProvisorios(unittest.TestCase):
         self.assertEqual(unicas, [a, c, vacia, dict(vacia)])
         self.assertEqual(rep, [(b, a)])
 
-    def test_provisorios(self):
-        mapa = L.mapa_provisorios([
-            {"LOCATION": "bue", "SERVICE TYPE": "gu", "SUPPLIER_PROV": "guiapo", "CODIGO_PROV": "000000"},
-            {"LOCATION": "FTE", "SERVICE TYPE": "GU", "SUPPLIER_PROV": "", "CODIGO_PROV": "000000"},
-        ])
-        self.assertEqual(mapa, {("BUE", "GU"): ("GUIAPO", "000000")})
-        filas = [{"LOCATION": "BUE", "SERVICE TYPE": "GU"}, {"LOCATION": "FTE", "SERVICE TYPE": "GU"},
-                 {"LOCATION": "FTE", "SERVICE TYPE": "GU"}, {"LOCATION": "USH", "SERVICE TYPE": "GU"}]
-        pares, faltan = L.pares_sin_provisorio(filas, mapa)
-        self.assertEqual(pares, [("BUE", "GU"), ("FTE", "GU"), ("USH", "GU")])
-        self.assertEqual(faltan, [("FTE", "GU"), ("USH", "GU")])
-        self.assertEqual(L.provisorio_de(filas[0], mapa), ("GUIAPO", "000000"))
-        self.assertIsNone(L.provisorio_de(filas[1], mapa))
-
 
 class Encabezados(unittest.TestCase):
-    CANON = ["LOCATION", "SERVICE TYPE", "SUPPLIER_PROV", "CODIGO_PROV", "ESTADO"]
+    CANON = ["LOCATION", "SERVICE TYPE", "SUPPLIER", "CODIGO", "ESTADO"]
 
     def test_variantes_equivalentes(self):
         self.assertEqual(L.canonizar_columnas(
-            ["Location", "service_type", "SUPPLIER PROV", " codigo  prov ", "Estado", "OTRA"], self.CANON),
-            ["LOCATION", "SERVICE TYPE", "SUPPLIER_PROV", "CODIGO_PROV", "ESTADO", "OTRA"])
+            ["Location", "service_type", "Supplier", " codigo ", "Estado", "OTRA"], self.CANON),
+            ["LOCATION", "SERVICE TYPE", "SUPPLIER", "CODIGO", "ESTADO", "OTRA"])
 
-    def test_fila_y_mapa_con_encabezados_distintos(self):
-        crudas = [{"Location": "bue", "SERVICE_TYPE": "gu", "supplier prov": "guiapo", "Codigo_Prov": "000000",
-                   "__row_idx__": 2}]
-        filas = [L.canonizar_fila(f, self.CANON) for f in crudas]
-        self.assertEqual(filas[0]["__row_idx__"], 2)
-        self.assertEqual(L.mapa_provisorios(filas), {("BUE", "GU"): ("GUIAPO", "000000")})
 
-    def test_provisorios_con_el_formato_de_la_hoja_substitute(self):
-        # Hoja real de la usuaria: LOCATION / SUPPLIER / SERVICE_TYPE / CODIGO = datos del provisorio
-        canon = ["LOCATION", "SERVICE TYPE", "SUPPLIER_PROV", "CODIGO_PROV"]
-        alias = {"SUPPLIER": "SUPPLIER_PROV", "CODIGO": "CODIGO_PROV"}
-        cols = ["LOCATION", "SUPPLIER", "SERVICE_TYPE", "CODIGO"]
-        self.assertEqual(L.canonizar_columnas(cols, canon, alias), ["LOCATION", "SUPPLIER_PROV", "SERVICE TYPE", "CODIGO_PROV"])
-        fila = L.canonizar_fila(dict(zip(cols, ["BUE", "GUIAPO", "GU", "000000"])), canon, alias)
-        self.assertEqual(L.mapa_provisorios([fila]), {("BUE", "GU"): ("GUIAPO", "000000")})
+class ProvisoriosEnElCodigo(unittest.TestCase):
+    TABLA = {"GU": "GUIAPO"}
 
-    def test_celda_vacia_invalida_la_fila(self):
-        filas = [L.canonizar_fila({"LOCATION": "BUE", "SERVICE TYPE": "GU", "SUPPLIER_PROV": "GUIAPO",
-                                   "CODIGO_PROV": ""}, self.CANON)]
-        self.assertEqual(L.mapa_provisorios(filas), {})
+    def test_proveedor_segun_service_type(self):
+        self.assertEqual(L.provisorio_para("gu", self.TABLA), "GUIAPO")
+        self.assertIsNone(L.provisorio_para("HT", self.TABLA))
+        self.assertEqual(L.CODIGO_PROVISORIO, "000000")
+
+    def test_service_types_sin_provisorio(self):
+        filas = [{"SERVICE TYPE": "GU"}, {"SERVICE TYPE": " ht "}, {"SERVICE TYPE": "TF"}, {"SERVICE TYPE": ""}, {"SERVICE TYPE": "HT"}]
+        self.assertEqual(L.service_types_sin_provisorio(filas, self.TABLA), ["HT", "TF"])
+
+
+class ComparacionesYPanel(unittest.TestCase):
+    def test_diferencia_multiconjunto(self):
+        a = [fila("A"), fila("A"), fila("B")]
+        self.assertEqual(L.diferencia_multiconjunto(a, [fila("B"), fila("A"), fila("A")]), ([], []))      # orden no importa
+        sa, sb = L.diferencia_multiconjunto(a, [fila("A"), fila("B"), fila("C")])
+        self.assertEqual(len(sa), 1)       # falta una A repetida
+        self.assertEqual(len(sb), 1)       # sobra C
+        # subconjunto por campos de reserva (la moneda no cuenta aquí)
+        solo_a, sobran = L.diferencia_multiconjunto(a, [fila("A", supplier="GUIAPO", code="000000")], L.CAMPOS_RESERVA)
+        self.assertEqual((len(solo_a), sobran), (2, []))
+        self.assertEqual(len(L.diferencia_multiconjunto(a, [fila("Z")], L.CAMPOS_RESERVA)[1]), 1)
+
+    def test_fecha_y_hora(self):
+        self.assertEqual(L.fecha_de("01/Nov/2026 08:30"), "01/Nov/2026")
+        self.assertEqual(L.hora_de("01/Nov/2026 08:30"), "08:30")
+        self.assertEqual(L.hora_de("01/Nov/2026"), "")
+        self.assertEqual(L.hora_de(""), "")
+
+    def test_necesita_pudo(self):
+        base = {k: "" for k in L.CAMPOS_PANEL}
+        self.assertFalse(L.necesita_pudo(dict(base, pickup_hora="00:00", dropoff_hora="00:00")))
+        self.assertFalse(L.necesita_pudo(base))
+        self.assertTrue(L.necesita_pudo(dict(base, pickup_texto="Hotel Sheraton")))
+        self.assertTrue(L.necesita_pudo(dict(base, remarks="Pasajero con silla de ruedas")))
+        self.assertTrue(L.necesita_pudo(dict(base, dropoff_hora="18:30")))
+
+    def test_paneles_homogeneos(self):
+        a = {k: "x" for k in L.CAMPOS_PANEL}
+        self.assertTrue(L.paneles_homogeneos([dict(a, _ref="1"), dict(a, _ref="2")]))
+        self.assertTrue(L.paneles_homogeneos([]))
+        self.assertFalse(L.paneles_homogeneos([a, dict(a, remarks="otro")]))
+
+    def test_rango_filas(self):
+        self.assertEqual(L.rango_filas("'SUBSTITUTE_DETALLE'!A5:S9"), (5, 9))
+        self.assertEqual(L.rango_filas("Hoja1!A1005:S1005"), (1005, 1005))
+        self.assertIsNone(L.rango_filas(""))
+        self.assertIsNone(L.rango_filas(None))
+
+    def test_detalle_pendiente(self):
+        filas = [{"FASE": "VERIFICADO", "LOCATION": "BUE"},
+                 {"FASE": "ida", "LOCATION": "bue", "SUPPLIER": "1acos1", "SERVICE TYPE": "gu", "CODIGO": "700gui", "CORRIDA": "c1"},
+                 {"FASE": "IDA_EN_CURSO", "LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI", "CORRIDA": "c1"},
+                 {"FASE": "LECTURA", "LOCATION": "BUE"}, {"FASE": "NO_SUSTITUIDA"}]
+        self.assertEqual(L.detalle_pendiente(filas), {("BUE", "1ACOS1", "GU", "700GUI", "c1"): 2})
+        self.assertEqual(L.detalle_pendiente([{"FASE": "VUELTA", "LOCATION": "FTE"}]).popitem()[1], 1)
 
 
 class LecturaProgresiva(unittest.TestCase):
@@ -190,6 +215,28 @@ class EscrituraEnLote(unittest.TestCase):
         self.assertEqual(ws.llamadas[0][0][0], ["a0", "0", ""])        # por nombre, faltante vacío
         self.assertTrue(all(o == "RAW" and t == "A1" for _, o, t in ws.llamadas))
         self.assertEqual(agregar_filas_batch(ws, cols, []), 0)
+
+    def test_devuelve_el_rango_escrito(self):
+        try:
+            from common.sheets_batch import actualizar_columna_rango, agregar_filas_batch
+        except ModuleNotFoundError as e:
+            self.skipTest(f"falta una dependencia ({e})")
+
+        class Hoja(self.HojaFalsa):
+            def append_rows(self, valores, **kw):
+                super().append_rows(valores, **kw)
+                n = len(valores)
+                return {"updates": {"updatedRange": f"'DET'!A10:C{9 + n}"}}
+
+            def update(self, range_name=None, values=None):
+                self.update_llamada = (range_name, values)
+
+        ws = Hoja()
+        self.assertEqual(agregar_filas_batch(ws, ["A", "FASE", "C"], [{"A": 1}, {"A": 2}, {"A": 3}], devolver_rango=True), (3, 10, 12))
+        self.assertEqual(actualizar_columna_rango(ws, ["A", "Fase", "C"], "FASE", 10, 12, "IDA"), "B10:B12")
+        self.assertEqual(ws.update_llamada, ("B10:B12", [["IDA"], ["IDA"], ["IDA"]]))
+        with self.assertRaises(ValueError):
+            actualizar_columna_rango(ws, ["A"], "FASE", 1, 1, "x")
 
     def test_columnas_con_otro_formato(self):
         try:

@@ -83,23 +83,15 @@ def norm_enc(h):
     return " ".join(str(h or "").replace("_", " ").upper().split())
 
 
-def _mapa_canonico(canonicas, alias=None):
-    mapa = {norm_enc(c): c for c in canonicas}
-    for variante, canonico in (alias or {}).items():
-        mapa.setdefault(norm_enc(variante), canonico)
-    return mapa
-
-
-def canonizar_columnas(columnas, canonicas, alias=None):
+def canonizar_columnas(columnas, canonicas):
     """Reemplaza cada encabezado equivalente a uno canónico por el canónico, en la
-    misma posición (las posiciones de columna no cambian). `alias` = {variante: canónico}
-    para nombres que no se parecen (ej. SUPPLIER -> SUPPLIER_PROV en la hoja PROVISORIOS)."""
-    mapa = _mapa_canonico(canonicas, alias)
+    misma posición (las posiciones de columna no cambian)."""
+    mapa = {norm_enc(c): c for c in canonicas}
     return [mapa.get(norm_enc(h), h) for h in columnas]
 
 
-def canonizar_fila(fila, canonicas, alias=None):
-    mapa = _mapa_canonico(canonicas, alias)
+def canonizar_fila(fila, canonicas):
+    mapa = {norm_enc(c): c for c in canonicas}
     return {(k if str(k).startswith("__") else mapa.get(norm_enc(k), k)): v for k, v in fila.items()}
 
 
@@ -133,28 +125,20 @@ def deduplicar_input(filas):
     return unicas, repetidas
 
 
-def mapa_provisorios(filas):
-    """{(LOCATION, SERVICE TYPE): (SUPPLIER_PROV, CODIGO_PROV)} desde la hoja
-    PROVISORIOS. Se ignoran filas incompletas."""
-    mapa = {}
-    for f in filas:
-        k = (_n(f.get("LOCATION")), _n(f.get("SERVICE TYPE")))
-        v = (_n(f.get("SUPPLIER_PROV")), _n(f.get("CODIGO_PROV")))
-        if all(k) and all(v):
-            mapa[k] = v
-    return mapa
+# Provisorios: viven en el código (decisión de la usuaria). Location y Service Type son los de la fila
+# de entrada, el código siempre es 000000 y el proveedor depende del Service Type.
+CODIGO_PROVISORIO = "000000"
 
 
-def provisorio_de(fila, mapa):
-    return mapa.get((_n(fila.get("LOCATION")), _n(fila.get("SERVICE TYPE"))))
+def provisorio_para(service_type, tabla):
+    """Proveedor del provisorio para ese Service Type según la tabla fija del código, o None."""
+    return tabla.get(_n(service_type))
 
 
-def pares_sin_provisorio(filas, mapa):
-    """Combinaciones (LOCATION, SERVICE TYPE) distintas del input y cuáles no
-    tienen provisorio. Devuelve (todos_ordenados, faltantes_ordenados)."""
-    pares = sorted({(_n(f.get("LOCATION")), _n(f.get("SERVICE TYPE")))
-                    for f in filas if _n(f.get("LOCATION")) and _n(f.get("SERVICE TYPE"))})
-    return pares, [p for p in pares if p not in mapa]
+def service_types_sin_provisorio(filas, tabla):
+    """Service Types del input que no tienen proveedor de provisorio definido."""
+    return sorted({_n(f.get("SERVICE TYPE")) for f in filas
+                   if _n(f.get("SERVICE TYPE")) and _n(f.get("SERVICE TYPE")) not in tabla})
 
 
 # ── Results ──────────────────────────────────────────────────────────────────
@@ -209,3 +193,63 @@ def texto_pudo(parte):
     """['01/Nov/2026 00:00', 'texto'] → ('01/Nov/2026 00:00', 'texto')."""
     parte = list(parte) + ["", ""]
     return parte[0].strip(), parte[1].strip()
+
+
+# ── Comparaciones, panel y detalle (modo aplicar) ───────────────────────────
+
+CAMPOS_COMPARACION = ("location", "service", "supplier", "code", "description", "booking_name",
+                      "booking_ref", "travel_date", "date", "status", "pudo_raw")
+CAMPOS_RESERVA = ("booking_ref", "travel_date", "date", "status")   # lo que identifica a una reserva movida
+CAMPOS_PANEL = ("pickup_fecha", "pickup_hora", "pickup_texto", "dropoff_fecha", "dropoff_hora",
+                "dropoff_texto", "remarks")
+FASES_PENDIENTES = ("IDA_EN_CURSO", "IDA", "VUELTA")
+
+
+def diferencia_multiconjunto(filas_a, filas_b, campos=CAMPOS_COMPARACION):
+    """(solo_en_a, solo_en_b) comparando las filas como multiconjuntos de tuplas de `campos`
+    (el orden no importa; las repeticiones sí)."""
+    ca = Counter(tuple(f[c] for c in campos) for f in filas_a)
+    cb = Counter(tuple(f[c] for c in campos) for f in filas_b)
+    return list((ca - cb).elements()), list((cb - ca).elements())
+
+
+def fecha_de(fecha_hora):
+    """'01/Nov/2026 00:00' -> '01/Nov/2026'."""
+    return (fecha_hora or "").strip().split(" ")[0]
+
+
+def hora_de(fecha_hora):
+    """'01/Nov/2026 00:00' -> '00:00' ('' si no hay hora)."""
+    partes = (fecha_hora or "").strip().split(" ")
+    return partes[1] if len(partes) > 1 else ""
+
+
+def necesita_pudo(panel):
+    """True si la reserva tiene datos de pickup/drop-off o Remarks que hay que reponer en la vuelta
+    (el modal no permite fecha: solo hora y texto). 00:00 se toma como 'sin hora cargada'."""
+    if any((panel.get(k) or "").strip() for k in ("pickup_texto", "dropoff_texto", "remarks")):
+        return True
+    return any((panel.get(k) or "") not in ("", "00:00") for k in ("pickup_hora", "dropoff_hora"))
+
+
+def paneles_homogeneos(paneles):
+    """Todas las reservas tienen exactamente los mismos datos de panel (se pueden reponer en un solo modal)."""
+    return len({tuple(p.get(c) for c in CAMPOS_PANEL) for p in paneles}) <= 1
+
+
+def rango_filas(updated_range):
+    """"'HOJA'!A5:S9" -> (5, 9). None si no se puede interpretar."""
+    import re
+    m = re.search(r"[A-Za-z]+(\d+):[A-Za-z]+(\d+)\s*$", updated_range or "")
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def detalle_pendiente(filas_detalle):
+    """Reservas del detalle que quedaron a mitad de camino (FASE IDA_EN_CURSO / IDA / VUELTA):
+    {(LOCATION, SUPPLIER, SERVICE TYPE, CODIGO, CORRIDA): cantidad}."""
+    out = Counter()
+    for f in filas_detalle:
+        if _n(f.get("FASE")) in FASES_PENDIENTES:
+            out[(_n(f.get("LOCATION")), _n(f.get("SUPPLIER")), _n(f.get("SERVICE TYPE")),
+                 _n(f.get("CODIGO")), str(f.get("CORRIDA") or "").strip())] += 1
+    return dict(out)

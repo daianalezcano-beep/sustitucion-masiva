@@ -134,14 +134,20 @@ def dump_html(nombre, html):
 
 
 def dump(driver, nombre):
-    dump_html(nombre, driver.page_source)
+    """Vuelca el HTML de la página. Nunca lanza: se usa dentro de manejadores de error, y si el
+    navegador se cayó no debe romper el manejo del error ni frenar el resto del lote."""
+    try:
+        dump_html(nombre, driver.page_source)
+    except Exception as e:
+        print(f"  ⚠ No se pudo guardar el HTML ({e})")
 
 
 def set_val(driver, el, value):
     driver.execute_script("""
         var inp = arguments[0], val = arguments[1];
         var setter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype, 'value').set;
+            inp.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype
+                                       : window.HTMLInputElement.prototype, 'value').set;
         setter.call(inp, val);
         inp.dispatchEvent(new Event('input',  {bubbles:true}));
         inp.dispatchEvent(new Event('change', {bubbles:true}));
@@ -155,7 +161,8 @@ def set_val_con_blur(driver, el, value):
         inp.focus();
         inp.dispatchEvent(new Event('focus', {bubbles:true}));
         var setter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype, 'value').set;
+            inp.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype
+                                       : window.HTMLInputElement.prototype, 'value').set;
         setter.call(inp, val);
         inp.dispatchEvent(new Event('input',  {bubbles:true}));
         inp.dispatchEvent(new Event('change', {bubbles:true}));
