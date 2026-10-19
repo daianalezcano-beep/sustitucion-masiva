@@ -119,7 +119,7 @@ class App(unittest.TestCase):
         at = self.app()
         self.assertFalse(at.exception)
         self.assertEqual(at.title[0].value, "Actualización de costos")
-        self.assertTrue(any("mediante sustitución de costos" in m.value for m in at.markdown))
+        self.assertTrue(any("mediante sustitución de servicios" in m.value for m in at.markdown))
         self.assertTrue(self.boton(at, "Ejecutar").disabled)
         self.assertTrue(any("usuario" in c.value for c in at.caption))
 

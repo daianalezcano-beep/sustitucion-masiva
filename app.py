@@ -276,7 +276,7 @@ def main():
     estado = _estado()
 
     st.title("Actualización de costos")
-    st.markdown('<div class="sd-subtitulo">mediante sustitución de costos</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sd-subtitulo">mediante sustitución de servicios</div>', unsafe_allow_html=True)
 
     render_cola(estado, _sheet_url_guardada())
 
