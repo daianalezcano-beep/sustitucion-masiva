@@ -646,9 +646,57 @@ def abrir_y_listar_estado(driver, li_idx_etiqueta):
     return {"valor_antes": res["antes"], "valor_despues": despues, "opciones": filas}
 
 
+def grupos_legend(driver):
+    """Grupos de checkboxes de estado del Filter (div.legend 'Booking Status' /
+    'Service Status'): por cada ítem, su texto, si está tildado y cómo es su
+    <i>. Solo lectura: no toca ningún checkbox. Sirve para mapear cada <i> a
+    su código de estado (los atributos _ngcontent-* de Angular no sirven)."""
+    dlg = dialog_subs(driver)
+    return driver.execute_script("""
+        function vis(e){ return !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length); }
+        var grupos = [];
+        Array.from(arguments[0].querySelectorAll('div.legend')).forEach(function(lg){
+            var cont = lg.parentElement;
+            var items = Array.from(cont.querySelectorAll('label, li')).filter(function(e){
+                return e !== lg && !e.contains(lg) && vis(e) && e.querySelector('i, input'); });
+            // Quedarse con los más internos (evita contar <li> y su <label> dos veces)
+            items = items.filter(function(e){
+                return !items.some(function(o){ return o !== e && e.contains(o); }); });
+            // Scroll interno del grupo (Service Status y Department lo tienen)
+            var scrolls = Array.from(cont.querySelectorAll('*')).filter(function(e){
+                return e.scrollHeight > e.clientHeight + 5 && e.clientHeight > 40; })
+                .map(function(e){ return {tag: e.tagName, clase: e.className,
+                    scrollHeight: e.scrollHeight, clientHeight: e.clientHeight}; });
+            grupos.push({
+                legend: (lg.innerText || '').trim(),
+                contenedor_clase: cont.className,
+                n_items_en_dom: items.length,
+                contenedores_con_scroll: scrolls,
+                items: items.map(function(e, k){
+                    var inp = e.querySelector('input[type=checkbox]');
+                    var i = e.querySelector('i');
+                    return {pos: k + 1, texto: (e.innerText || '').trim().slice(0, 60),
+                            tag: e.tagName, tilda: inp ? inp.checked : null,
+                            input_id: inp ? inp.id : null,
+                            i_clase: i ? i.className : null,
+                            html: e.outerHTML.slice(0, 400)};
+                }),
+                html: cont.outerHTML.slice(0, 12000)
+            });
+        });
+        return grupos;
+    """, dlg)
+
+
 def seccion_e_controles(driver):
     R = REPORT.setdefault("e_controles", {})
     dlg = dialog_subs(driver)
+    R["grupos_legend"] = grupos_legend(driver)
+    for g in R["grupos_legend"]:
+        dump_html(f"e_legend_{g['legend']}", g["html"])
+        print(f"  [{g['legend']}] " + ", ".join(
+            f"{it['texto'] or '?'}={'✔' if it['tilda'] else ('✘' if it['tilda'] is False else '?')}"
+            for it in g["items"]))
     R["tabs"] = driver.execute_script("""
         return Array.from(document.querySelectorAll('[id^="tptablabel-"]')).map(function(e){
             return {id: e.id, texto: (e.innerText || '').trim(),
