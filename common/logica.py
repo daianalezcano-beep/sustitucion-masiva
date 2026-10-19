@@ -76,6 +76,25 @@ def validar_rango(desde, hasta):
     return None
 
 
+# ── Encabezados de las hojas ─────────────────────────────────────────────────
+
+def norm_enc(h):
+    """'service_type', 'Service Type' y ' SERVICE  TYPE ' son el mismo encabezado."""
+    return " ".join(str(h or "").replace("_", " ").upper().split())
+
+
+def canonizar_columnas(columnas, canonicas):
+    """Reemplaza cada encabezado equivalente a uno canónico por el canónico, en la
+    misma posición (las posiciones de columna no cambian)."""
+    mapa = {norm_enc(c): c for c in canonicas}
+    return [mapa.get(norm_enc(h), h) for h in columnas]
+
+
+def canonizar_fila(fila, canonicas):
+    mapa = {norm_enc(c): c for c in canonicas}
+    return {(k if str(k).startswith("__") else mapa.get(norm_enc(k), k)): v for k, v in fila.items()}
+
+
 # ── Input (hoja SUBSTITUTE) y provisorios ───────────────────────────────────
 
 def _n(v):

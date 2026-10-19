@@ -9,6 +9,7 @@ reusando el reintento ante 429 de sheets_client.
 
 import copy
 
+from common.logica import norm_enc
 from common.sheets_client import _con_reintentos_429
 
 
@@ -20,9 +21,24 @@ def agregar_filas_batch(ws, columnas, filas, tamano_lote=400):
     Devuelve la cantidad de filas escritas."""
     if not filas:
         return 0
-    matriz = [[str(f.get(c, "") if f.get(c, "") is not None else "") for c in columnas] for f in filas]
+    matriz = []
+    for f in filas:
+        nf = {norm_enc(k): v for k, v in f.items()}
+        matriz.append(["" if nf.get(norm_enc(c)) is None else str(nf.get(norm_enc(c))) for c in columnas])
     for i in range(0, len(matriz), tamano_lote):
         lote = matriz[i:i + tamano_lote]
         _con_reintentos_429(lambda l=lote: ws.append_rows(
             copy.deepcopy(l), value_input_option="RAW", table_range="A1"))
     return len(matriz)
+
+
+def asegurar_columnas_tolerante(ws, columnas_requeridas):
+    """Como sheets_client.asegurar_columnas, pero un encabezado equivalente
+    ('SERVICE_TYPE' vs 'SERVICE TYPE') cuenta como existente: no agrega duplicados.
+    Nunca renombra ni reordena las columnas que ya existen."""
+    headers = ws.row_values(1)
+    existentes = {norm_enc(h) for h in headers}
+    faltantes = [c for c in columnas_requeridas if norm_enc(c) not in existentes]
+    if faltantes:
+        _con_reintentos_429(ws.update, range_name="A1", values=[headers + faltantes])
+    return faltantes

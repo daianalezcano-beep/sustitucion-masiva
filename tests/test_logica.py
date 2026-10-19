@@ -77,6 +77,27 @@ class InputYProvisorios(unittest.TestCase):
         self.assertIsNone(L.provisorio_de(filas[1], mapa))
 
 
+class Encabezados(unittest.TestCase):
+    CANON = ["LOCATION", "SERVICE TYPE", "SUPPLIER_PROV", "CODIGO_PROV", "ESTADO"]
+
+    def test_variantes_equivalentes(self):
+        self.assertEqual(L.canonizar_columnas(
+            ["Location", "service_type", "SUPPLIER PROV", " codigo  prov ", "Estado", "OTRA"], self.CANON),
+            ["LOCATION", "SERVICE TYPE", "SUPPLIER_PROV", "CODIGO_PROV", "ESTADO", "OTRA"])
+
+    def test_fila_y_mapa_con_encabezados_distintos(self):
+        crudas = [{"Location": "bue", "SERVICE_TYPE": "gu", "supplier prov": "guiapo", "Codigo_Prov": "000000",
+                   "__row_idx__": 2}]
+        filas = [L.canonizar_fila(f, self.CANON) for f in crudas]
+        self.assertEqual(filas[0]["__row_idx__"], 2)
+        self.assertEqual(L.mapa_provisorios(filas), {("BUE", "GU"): ("GUIAPO", "000000")})
+
+    def test_celda_vacia_invalida_la_fila(self):
+        filas = [L.canonizar_fila({"LOCATION": "BUE", "SERVICE TYPE": "GU", "SUPPLIER_PROV": "GUIAPO",
+                                   "CODIGO_PROV": ""}, self.CANON)]
+        self.assertEqual(L.mapa_provisorios(filas), {})
+
+
 class LecturaProgresiva(unittest.TestCase):
     def leer(self, filas, ventana, paso):
         """Simula un virtual scroll: ventana de N filas que avanza de a 'paso'."""
@@ -160,3 +181,12 @@ class EscrituraEnLote(unittest.TestCase):
         self.assertEqual(ws.llamadas[0][0][0], ["a0", "0", ""])        # por nombre, faltante vacío
         self.assertTrue(all(o == "RAW" and t == "A1" for _, o, t in ws.llamadas))
         self.assertEqual(agregar_filas_batch(ws, cols, []), 0)
+
+    def test_columnas_con_otro_formato(self):
+        try:
+            from common.sheets_batch import agregar_filas_batch
+        except ModuleNotFoundError as e:
+            self.skipTest(f"falta una dependencia ({e})")
+        ws = self.HojaFalsa()
+        agregar_filas_batch(ws, ["SERVICE_TYPE", "Booking Name"], [{"SERVICE TYPE": "GU", "BOOKING_NAME": "x"}])
+        self.assertEqual(ws.llamadas[0][0], [["GU", "x"]])

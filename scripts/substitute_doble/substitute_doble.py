@@ -65,9 +65,8 @@ from selenium.webdriver.common.by import By
 from common import logica as L
 from common import tp_selenium as tp
 from common.abort import ABORT_EXIT_CODE, AbortadoPorUsuario, chequear_abort
-from common.sheets_batch import agregar_filas_batch
-from common.sheets_client import (actualizar_fila_sheet, asegurar_columnas,
-                                  cargar_sheet, conectar_sheets)
+from common.sheets_batch import agregar_filas_batch, asegurar_columnas_tolerante
+from common.sheets_client import actualizar_fila_sheet, cargar_sheet, conectar_sheets
 from common.user_config import CREDENTIALS_PATH as _CRED_DEFAULT
 from common.user_config import TOKEN_PATH as _TOKEN_DEFAULT
 from common.tp_selenium import dump, dump_html, esperar_fin_carga, jc, pausa, set_val, set_val_con_blur, ss
@@ -630,27 +629,47 @@ def escribir_resultado_fila(ws, row_idx, columnas, estado=None, observaciones=No
     actualizar_fila_sheet(ws, row_idx, columnas, valores)
 
 
+CANON_INPUT = COLS_INPUT + [COL_OBS, COL_TS]
+CANON_PROV = ["LOCATION", "SERVICE TYPE", "SUPPLIER_PROV", "CODIGO_PROV"]
+
+
 def cargar_hojas():
+    """Lee las tres hojas. Los encabezados se aceptan con guion bajo o espacio y en cualquier
+    combinación de mayúsculas/minúsculas ('SERVICE_TYPE' == 'SERVICE TYPE')."""
     ws = conectar_sheets(SHEET_URL, HOJA, CREDENTIALS_PATH, TOKEN_PATH)
-    asegurar_columnas(ws, [COL_OBS, COL_TS])
+    asegurar_columnas_tolerante(ws, [COL_OBS, COL_TS])
     filas, columnas = cargar_sheet(ws)
+    columnas = L.canonizar_columnas(columnas, CANON_INPUT)
+    filas = [L.canonizar_fila(f, CANON_INPUT) for f in filas]
     faltan = [c for c in COLS_INPUT if c not in columnas]
     if faltan:
         raise ValueError(f"Faltan columnas {faltan} en la hoja '{HOJA}'. Detectadas: {columnas}")
     print(f"Sheet '{HOJA}': {len(filas)} fila(s)")
 
+    mapa = {}
     try:
         ws_prov = conectar_sheets(SHEET_URL, HOJA_PROV, CREDENTIALS_PATH, TOKEN_PATH)
-        mapa = L.mapa_provisorios(cargar_sheet(ws_prov)[0])
+        f_prov, c_prov = cargar_sheet(ws_prov)
+        c_prov_canon = L.canonizar_columnas(c_prov, CANON_PROV)
+        f_prov = [L.canonizar_fila(f, CANON_PROV) for f in f_prov]
+        mapa = L.mapa_provisorios(f_prov)
+        print(f"Hoja '{HOJA_PROV}': columnas leídas {c_prov} · {len(f_prov)} fila(s) con datos · "
+              f"{len(mapa)} válida(s) (con las 4 columnas completas)")
+        sin_columna = [c for c in CANON_PROV if c not in c_prov_canon]
+        if sin_columna:
+            print(f"⚠ A la hoja '{HOJA_PROV}' le faltan las columnas {sin_columna} (se esperan {CANON_PROV}).")
+        elif f_prov and not mapa:
+            print(f"⚠ '{HOJA_PROV}' tiene filas pero ninguna con las 4 columnas completas. Primera fila leída: "
+                  f"{ {k: v for k, v in f_prov[0].items() if not str(k).startswith('__')} }")
+        if mapa:
+            print("  Provisorios mapeados: " + ", ".join(f"{a}/{b}→{c}/{d}" for (a, b), (c, d) in sorted(mapa.items())))
     except ValueError as e:
         print(f"⚠ {e}\n  Sigo sin mapa de provisorios (solo afecta al aviso 'SIN PROVISORIO').")
-        mapa = {}
-    print(f"Provisorios mapeados: {len(mapa)}")
 
     ws_det = cols_det = None
     if ESCRIBIR_DETALLE:
         ws_det = conectar_sheets(SHEET_URL, HOJA_DET, CREDENTIALS_PATH, TOKEN_PATH)
-        asegurar_columnas(ws_det, COLS_DET)
+        asegurar_columnas_tolerante(ws_det, COLS_DET)
         cols_det = ws_det.row_values(1)
     return ws, filas, columnas, mapa, ws_det, cols_det
 

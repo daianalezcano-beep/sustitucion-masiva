@@ -31,6 +31,9 @@ python scripts\substitute_doble\substitute_doble.py
 - En modo lectura el script también prueba "Select all" con el checkbox del encabezado de Results: verifica `Selected == Found` y
   deselecciona, sin tocar nunca OK (`TOURPLAN_PROBAR_SELECCION=0` lo desactiva). Es la misma mecánica que usará el modo aplicar.
 - Hojas del Sheet: `SUBSTITUTE` (entrada), `PROVISORIOS` (config), `SUBSTITUTE_DETALLE` (salida).
+- Los encabezados del Sheet se aceptan con guion bajo o espacio y en cualquier combinación de mayúsculas
+  (`SERVICE_TYPE` = `SERVICE TYPE`). `PROVISORIOS` necesita las 4 columnas completas en cada fila: `LOCATION`, `SERVICE TYPE`,
+  `SUPPLIER_PROV`, `CODIGO_PROV`; al arrancar el script imprime qué leyó de esa hoja.
 - Usa las credenciales de Google de `~/.tourplan-nx-app/` (las mismas de Drive-TP-NX-App).
 - Cada corrida crea su propia carpeta `salida\lectura_AAAAMMDD-HHMMSS\` (el diagnóstico, `diag_out\diag_AAAAMMDD-HHMMSS\`) con
   capturas, HTML, `panel_probe.json` y `consola.log` (todo lo que imprime el script). Para mandar una corrida, comprimir esa subcarpeta.
