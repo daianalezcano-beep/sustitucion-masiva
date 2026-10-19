@@ -92,6 +92,15 @@ class Encabezados(unittest.TestCase):
         self.assertEqual(filas[0]["__row_idx__"], 2)
         self.assertEqual(L.mapa_provisorios(filas), {("BUE", "GU"): ("GUIAPO", "000000")})
 
+    def test_provisorios_con_el_formato_de_la_hoja_substitute(self):
+        # Hoja real de la usuaria: LOCATION / SUPPLIER / SERVICE_TYPE / CODIGO = datos del provisorio
+        canon = ["LOCATION", "SERVICE TYPE", "SUPPLIER_PROV", "CODIGO_PROV"]
+        alias = {"SUPPLIER": "SUPPLIER_PROV", "CODIGO": "CODIGO_PROV"}
+        cols = ["LOCATION", "SUPPLIER", "SERVICE_TYPE", "CODIGO"]
+        self.assertEqual(L.canonizar_columnas(cols, canon, alias), ["LOCATION", "SUPPLIER_PROV", "SERVICE TYPE", "CODIGO_PROV"])
+        fila = L.canonizar_fila(dict(zip(cols, ["BUE", "GUIAPO", "GU", "000000"])), canon, alias)
+        self.assertEqual(L.mapa_provisorios([fila]), {("BUE", "GU"): ("GUIAPO", "000000")})
+
     def test_celda_vacia_invalida_la_fila(self):
         filas = [L.canonizar_fila({"LOCATION": "BUE", "SERVICE TYPE": "GU", "SUPPLIER_PROV": "GUIAPO",
                                    "CODIGO_PROV": ""}, self.CANON)]

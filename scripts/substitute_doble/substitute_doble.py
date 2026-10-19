@@ -631,6 +631,8 @@ def escribir_resultado_fila(ws, row_idx, columnas, estado=None, observaciones=No
 
 CANON_INPUT = COLS_INPUT + [COL_OBS, COL_TS]
 CANON_PROV = ["LOCATION", "SERVICE TYPE", "SUPPLIER_PROV", "CODIGO_PROV"]
+# En PROVISORIOS también se acepta el mismo formato que SUBSTITUTE: SUPPLIER y CODIGO son los del provisorio.
+ALIAS_PROV = {"SUPPLIER": "SUPPLIER_PROV", "CODIGO": "CODIGO_PROV"}
 
 
 def cargar_hojas():
@@ -650,14 +652,14 @@ def cargar_hojas():
     try:
         ws_prov = conectar_sheets(SHEET_URL, HOJA_PROV, CREDENTIALS_PATH, TOKEN_PATH)
         f_prov, c_prov = cargar_sheet(ws_prov)
-        c_prov_canon = L.canonizar_columnas(c_prov, CANON_PROV)
-        f_prov = [L.canonizar_fila(f, CANON_PROV) for f in f_prov]
+        c_prov_canon = L.canonizar_columnas(c_prov, CANON_PROV, ALIAS_PROV)
+        f_prov = [L.canonizar_fila(f, CANON_PROV, ALIAS_PROV) for f in f_prov]
         mapa = L.mapa_provisorios(f_prov)
         print(f"Hoja '{HOJA_PROV}': columnas leídas {c_prov} · {len(f_prov)} fila(s) con datos · "
               f"{len(mapa)} válida(s) (con las 4 columnas completas)")
         sin_columna = [c for c in CANON_PROV if c not in c_prov_canon]
         if sin_columna:
-            print(f"⚠ A la hoja '{HOJA_PROV}' le faltan las columnas {sin_columna} (se esperan {CANON_PROV}).")
+            print(f"⚠ A la hoja '{HOJA_PROV}' le faltan las columnas {sin_columna} (se esperan {CANON_PROV}, o bien SUPPLIER y CODIGO).")
         elif f_prov and not mapa:
             print(f"⚠ '{HOJA_PROV}' tiene filas pero ninguna con las 4 columnas completas. Primera fila leída: "
                   f"{ {k: v for k, v in f_prov[0].items() if not str(k).startswith('__')} }")

@@ -83,15 +83,23 @@ def norm_enc(h):
     return " ".join(str(h or "").replace("_", " ").upper().split())
 
 
-def canonizar_columnas(columnas, canonicas):
-    """Reemplaza cada encabezado equivalente a uno canónico por el canónico, en la
-    misma posición (las posiciones de columna no cambian)."""
+def _mapa_canonico(canonicas, alias=None):
     mapa = {norm_enc(c): c for c in canonicas}
+    for variante, canonico in (alias or {}).items():
+        mapa.setdefault(norm_enc(variante), canonico)
+    return mapa
+
+
+def canonizar_columnas(columnas, canonicas, alias=None):
+    """Reemplaza cada encabezado equivalente a uno canónico por el canónico, en la
+    misma posición (las posiciones de columna no cambian). `alias` = {variante: canónico}
+    para nombres que no se parecen (ej. SUPPLIER -> SUPPLIER_PROV en la hoja PROVISORIOS)."""
+    mapa = _mapa_canonico(canonicas, alias)
     return [mapa.get(norm_enc(h), h) for h in columnas]
 
 
-def canonizar_fila(fila, canonicas):
-    mapa = {norm_enc(c): c for c in canonicas}
+def canonizar_fila(fila, canonicas, alias=None):
+    mapa = _mapa_canonico(canonicas, alias)
     return {(k if str(k).startswith("__") else mapa.get(norm_enc(k), k)): v for k, v in fila.items()}
 
 
