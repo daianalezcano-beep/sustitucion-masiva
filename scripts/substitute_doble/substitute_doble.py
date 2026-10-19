@@ -100,9 +100,11 @@ CONFIRMAR_OK = os.environ.get("TOURPLAN_CONFIRMAR_OK", "1").strip() in ("1", "tr
 CONFIRM_DIR = os.environ.get("TOURPLAN_CONFIRM_DIR", "").strip()
 PANEL_MAX = int(os.environ.get("TOURPLAN_PANEL_MAX", "5"))
 CONFIRMO_SIN_PENDIENTES = os.environ.get("TOURPLAN_CONFIRMO_SIN_PENDIENTES", "").strip().upper()
-# Reusar el diálogo entre filas ahorra ~15 s por fila pero NO está validado: Found podría
-# quedar con el valor de la fila anterior. Default: abrir la pantalla de cero en cada fila.
-REUSAR_PANTALLA = os.environ.get("TOURPLAN_REUSAR_PANTALLA", "0").strip() in ("1", "true", "True")
+# Reusar la pantalla Substitute Service entre búsquedas (volver a la solapa Filter) ahorra ~15 s por
+# consulta. Si la pantalla no está como se espera, se abre de cero. TOURPLAN_REUSAR_PANTALLA=0 la desactiva.
+# NO está validado contra Tourplan real: Found podría quedar con el valor de la consulta anterior
+# (las verificaciones de Found, de filas fuera del filtro y de fila vs. foto inicial lo detectan).
+REUSAR_PANTALLA = os.environ.get("TOURPLAN_REUSAR_PANTALLA", "1").strip() in ("1", "true", "True")
 
 COL_ESTADO, COL_OBS, COL_TS = "ESTADO", "OBSERVACIONES", "TIMESTAMP"
 COLS_INPUT = ["LOCATION", "SUPPLIER", "SERVICE TYPE", "CODIGO", COL_ESTADO]
