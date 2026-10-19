@@ -32,6 +32,8 @@ Reglas de negocio y de seguridad:
   - Tope MAX_RESERVAS: si Found lo supera, la fila termina en ERROR sin leer.
   - Lectura de Results por contenido (nunca por índice ni WebElements
     cacheados); el total leído debe coincidir con Found o la fila es ERROR.
+  - Modo lectura: prueba además "Select all" con el checkbox del encabezado (verifica
+    Selected == Found y deselecciona); nunca toca OK.
   - Modo lectura: la fila queda PENDIENTE (lista para aplicar) con el conteo en
     OBSERVACIONES; solo los errores y duplicados cambian ESTADO.
   - try: login -> filas -> finally: logout (solo si hubo sesión) + quit.
@@ -83,6 +85,7 @@ FECHA_HASTA = os.environ.get("TOURPLAN_FECHA_HASTA", "31/12/49")    # 31/12/49 =
 MAX_RESERVAS = int(os.environ.get("TOURPLAN_MAX_RESERVAS", "2000"))
 FILA = os.environ.get("TOURPLAN_FILA", "").strip()                  # solo esa fila del Sheet
 PROBAR_PANEL = os.environ.get("TOURPLAN_PROBAR_PANEL", "1").strip() in ("1", "true", "True")
+PROBAR_SELECCION = os.environ.get("TOURPLAN_PROBAR_SELECCION", "1").strip() in ("1", "true", "True")
 ESCRIBIR_DETALLE = os.environ.get("TOURPLAN_ESCRIBIR_DETALLE", "1").strip() in ("1", "true", "True")
 # Reusar el diálogo entre filas ahorra ~15 s por fila pero NO está validado: Found podría
 # quedar con el valor de la fila anterior. Default: abrir la pantalla de cero en cada fila.
@@ -482,6 +485,43 @@ def sondear_panel(driver):
     return res
 
 
+JS_ENCABEZADO = r"""
+    var th = document.querySelector('#resultsTab tp-grid table thead th.tpcol-checkbox');
+    if (!th) return [];
+    return [th.querySelector('label'), th.querySelector('i'), th.querySelector('input')]
+        .filter(function(e){ return e; });
+"""
+
+
+def probar_seleccion_total(driver, found):
+    """Selecciona TODO con el checkbox del encabezado de Results, verifica que
+    Selected == Found y deselecciona (verificando Selected == 0). Es la misma
+    mecánica que usará el modo aplicar, pero sin tocar nunca OK. Prueba el
+    <label>, el <i> y el <input> del encabezado, en ese orden, hasta que uno
+    seleccione (la grabación clickeó el <i> y el <label>)."""
+    candidatos = driver.execute_script(JS_ENCABEZADO)
+    if not candidatos:
+        raise ErrorFila("ERROR: selección", "No encontré el checkbox del encabezado de Results")
+    usado = None
+    for nombre, el in zip(("label", "i", "input"), candidatos):
+        jc(driver, el)
+        pausa(1.5)
+        sel = leer_contadores(driver)[1]
+        if sel == found:
+            usado = (nombre, el)
+            break
+        if sel not in (0, None):
+            raise ErrorFila("ERROR: selección", f"Select all dejó Selected={sel} con Found={found} (click en {nombre})")
+    if usado is None:
+        raise ErrorFila("ERROR: selección", f"Ningún click en el encabezado seleccionó las {found} fila(s) (Selected=0)")
+    jc(driver, usado[1])
+    pausa(1.5)
+    sel2 = leer_contadores(driver)[1]
+    if sel2 != 0:
+        raise ErrorFila("ERROR: selección", f"No pude deseleccionar: Selected={sel2} tras el segundo click ({usado[0]})")
+    return usado[0]
+
+
 # ── Fila del input ───────────────────────────────────────────────────────────
 
 def procesar_fila_lectura(driver, ctx, row):
@@ -553,12 +593,19 @@ def procesar_fila_lectura(driver, ctx, row):
             json.dump(ctx["panel"], f, ensure_ascii=False, indent=2, default=str)
         marca("panel")
 
+    sel_total = ""
+    if PROBAR_SELECCION and found > 0:
+        via = probar_seleccion_total(driver, found)
+        sel_total = f"seleccion_total=OK({found} via {via}); "
+        print(f"    Select all verificado: Selected=Found={found} (click en {via}) y deselección OK")
+        marca("seleccion")
+
     dup = L.analizar_duplicados(filas)
     estados = L.conteo_estados(filas)
     obs = (f"[LECTURA {ahora()}] Found={found}; estados={estados}; "
            f"claves repetidas={dup['claves']} ({dup['filas']} filas; {dup['difieren_estado']} con estado distinto, "
            f"{dup['difieren_pudo']} con PU/DO distinto); provisorio={texto_prov}; "
-           f"lectura={modo_lectura}; t={marcas}")
+           f"{sel_total}lectura={modo_lectura}; t={marcas}")
 
     detalle = [{
         "TIMESTAMP": ahora(), "CORRIDA": ctx["corrida"], "LOCATION": loc, "SUPPLIER": sup,

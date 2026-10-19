@@ -28,6 +28,8 @@ python scripts\substitute_doble\substitute_doble.py
 
 - `TOURPLAN_FECHA_DESDE` es obligatoria (DD/MM/YY). `TOURPLAN_FECHA_HASTA` por defecto `31/12/49` (= 2049).
 - `TOURPLAN_FILA=<n>` procesa solo esa fila del Sheet (para la primera prueba); sin ella, todas las PENDIENTE.
+- En modo lectura el script también prueba "Select all" con el checkbox del encabezado de Results: verifica `Selected == Found` y
+  deselecciona, sin tocar nunca OK (`TOURPLAN_PROBAR_SELECCION=0` lo desactiva). Es la misma mecánica que usará el modo aplicar.
 - Hojas del Sheet: `SUBSTITUTE` (entrada), `PROVISORIOS` (config), `SUBSTITUTE_DETALLE` (salida).
 - Usa las credenciales de Google de `~/.tourplan-nx-app/` (las mismas de Drive-TP-NX-App).
 - Cada corrida crea su propia carpeta `salida\lectura_AAAAMMDD-HHMMSS\` (el diagnóstico, `diag_out\diag_AAAAMMDD-HHMMSS\`) con
