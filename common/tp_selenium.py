@@ -166,11 +166,22 @@ def set_val_con_blur(driver, el, value):
     """, el, value)
 
 
+JS_CARGANDO = r"""
+    return Array.from(document.querySelectorAll('dialog[open]')).some(function(d){
+        // Los diálogos de la propia pantalla (Substitute Service, etc.) son <dialog open> dentro
+        // de <tp-dialog> y están abiertos todo el tiempo: no cuentan como "cargando".
+        return !d.closest('tp-dialog') || /please\s*wait/i.test(d.innerText || '');
+    });
+"""
+
+
 def esperar_fin_carga(driver, timeout=15):
-    """Espera a que cierre el <dialog> nativo 'PLEASE WAIT...'."""
+    """Espera a que cierre el <dialog> de carga ('PLEASE WAIT...'). Ignora los
+    <dialog open> que viven dentro de un <tp-dialog> (la pantalla abierta), salvo
+    que su texto sea PLEASE WAIT."""
     fin = time.time() + timeout * VELOCIDAD
     while time.time() < fin:
-        if not driver.find_elements(By.CSS_SELECTOR, "dialog[open]"):
+        if not driver.execute_script(JS_CARGANDO):
             return True
         time.sleep(0.3)
     print("    ⚠ El dialog de carga ('PLEASE WAIT...') seguía abierto tras esperar")

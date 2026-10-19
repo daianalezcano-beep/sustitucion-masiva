@@ -63,6 +63,24 @@ Etiqueta **[DIAG]** = confirmado por esa corrida. **[?]** = sigue sin verificar.
   Todo deshabilitado/solo lectura sin selección **[DIAG]**. Qué muestra al seleccionar una fila **[?]**.
 - Virtual scroll de Results **[?]**: el caso tenía 1 fila y no hubo contenedor con scroll.
 
+## Modal Replacement Service (captura de la usuaria, 2026-10-19) — **[CAPTURA]**, sin volcado de HTML
+- Se abre con OK del diálogo principal, encima de Substitute Service (`tp-replacement-service`).
+- Campos: LOCATION (viene **precargado con "AAA"** y seleccionado: hay que vaciarlo antes de escribir),
+  SERVICE, SUPPLIER, CODE (con lupa), dos campos grises (description/comment) y SERVICE STATUS (`(Default)`).
+- **RETAIN SELL PRICE** y **RETAIN VOUCHER TEXT**: dos checkboxes **tildados por defecto**, con ese texto de label.
+  Decisión: no se tocan; antes de cada OK se verifica por el texto "Retain" que ambos sigan tildados.
+- Checkbox **ENTER PICKUP/DROP-OFF DETAILS** (destildado) que habilita PICKUP TIME, texto de pickup,
+  DROPOFF TIME, texto de dropoff y REMARKS. Solo hay hora (sin fecha).
+- Botones EXIT y OK; el OK está deshabilitado hasta completar Location/Service/Supplier (campos con borde rojo).
+- Al volver de este modal con EXIT, la selección de Results se conserva (grabación de la usuaria).
+
+## Lecciones de la primera corrida de `substitute_doble.py` (2026-10-19)
+- `dialog[open]` NO sirve para detectar el cartel de carga: la propia pantalla (`tp-dialog > dialog`) está siempre
+  abierta. Solo cuentan los `dialog[open]` fuera de un `tp-dialog` o con texto "PLEASE WAIT". Corregido en
+  `common/tp_selenium.py` (antes cada espera agotaba su timeout: 3m24s para una fila).
+- Cualquier click a mano en Chrome durante la corrida altera la lectura: el script detecta `Selected` distinto de
+  cero antes de seleccionar y corta la fila con ERROR.
+
 ## Sin verificar todavía
 - Qué muestra el panel derecho al seleccionar una fila (y si trae el texto de pickup/dropoff).
 - Comportamiento de Results con muchas filas (virtual scroll).

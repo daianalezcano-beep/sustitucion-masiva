@@ -520,7 +520,8 @@ def procesar_fila_lectura(driver, ctx, row):
     marca("buscar")
     print(f"    Found={found} Selected={selected}")
     if selected not in (0, None):
-        raise ErrorFila("ERROR: Results", f"Selected={selected} antes de seleccionar nada")
+        raise ErrorFila("ERROR: Results", f"Selected={selected} antes de seleccionar nada: alguien tocó la ventana de "
+                        "Chrome mientras corría el script (no hay que clickear nada a mano)")
     if found > MAX_RESERVAS:
         raise ErrorFila("ERROR: supera el tope", f"Found={found} > MAX_RESERVAS={MAX_RESERVAS}; no se leyó nada")
 
@@ -661,6 +662,7 @@ def main():
     ctx = {"corrida": corrida, "mapa_prov": mapa, "desde": desde,
            "hasta": hasta, "abierta": False, "panel_pendiente": PROBAR_PANEL, "panel": None}
 
+    print("\n⚠ Mientras corre, NO toques la ventana de Chrome (cualquier click a mano puede alterar la lectura).")
     driver = tp.crear_driver()
     sesion_iniciada = abortado = False
     resumen = {"ok": 0, "error": 0, "reservas": 0}
