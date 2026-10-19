@@ -349,10 +349,9 @@ def destildar_booking_status(driver, texto=BOOKING_STATUS_EXCLUIR):
 # ── Results ──────────────────────────────────────────────────────────────────
 
 def buscar(driver):
-    """Filter -> Analysis -> Results (la secuencia de las grabaciones)."""
-    for css in ("#tptablabel-bookinganalysis", "#tptablabel-resultsTab"):
-        jc(driver, driver.find_element(By.CSS_SELECTOR, css))
-        pausa(2)
+    """Filter -> Results (la solapa Analysis de las grabaciones no lleva nada que completar)."""
+    jc(driver, driver.find_element(By.CSS_SELECTOR, "#tptablabel-resultsTab"))
+    pausa(2)
     esperar_fin_carga(driver, timeout=30)
 
 
