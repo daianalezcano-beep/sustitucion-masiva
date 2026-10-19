@@ -484,3 +484,30 @@ class LecturaSobreConsultar(unittest.TestCase):
         self.assertTrue(all(set(d) <= set(sd.COLS_DET) for d in detalle))   # solo columnas que existen en la hoja
         with self.assertRaises(sd.ErrorFila):                                # fila incompleta
             sd.procesar_fila_lectura(None, ctx, {"LOCATION": "BUE", "SUPPLIER": "", "SERVICE TYPE": "GU", "CODIGO": "X"})
+
+
+@unittest.skipIf(sd is None, "falta una dependencia para importar el script")
+class CeldaPudo(unittest.TestCase):
+    def test_pickup_dropoff_y_remarks_de_la_celda(self):
+        f = {"pudo_filas": [["Pickup:", "01/Nov/2026 09:00", "hotel prueba"], ["Dropoff:", "01/Nov/2026 00:00", ""],
+                            ["Remarks:", "texto prueba"]]}
+        n = sd.normalizar_fila(dict(f))
+        self.assertEqual((n["pickup_fecha_hora"], n["pickup_texto"]), ("01/Nov/2026 09:00", "hotel prueba"))
+        self.assertEqual((n["dropoff_fecha_hora"], n["dropoff_texto"]), ("01/Nov/2026 00:00", ""))
+        self.assertEqual(n["remarks"], "texto prueba")
+        self.assertNotIn("pudo_filas", n)
+
+    def test_remarks_en_otra_celda_o_ausente(self):
+        n = sd.normalizar_fila({"pudo_filas": [["Remarks:", "", "dato"]]})
+        self.assertEqual(n["remarks"], "dato")
+        self.assertEqual(sd.normalizar_fila({"pudo_filas": [["Pickup:", "01/Nov/2026 00:00", ""]]})["remarks"], "")
+        self.assertEqual(sd.normalizar_fila({})["remarks"], "")
+
+    def test_el_detalle_lleva_los_remarks_de_la_grilla(self):
+        ctx = {"corrida": "c1"}
+        f = fila("R1")
+        f["remarks"] = "texto prueba"
+        d = sd.armar_detalle(ctx, "BUE", "1ACOS1", "GU", "700GUI", [f], "LECTURA", "LEIDA")
+        self.assertEqual(d[0]["REMARKS"], "texto prueba")
+        d = sd.armar_detalle(ctx, "BUE", "1ACOS1", "GU", "700GUI", [fila("R2")], "LECTURA", "LEIDA")   # sin la clave
+        self.assertEqual(d[0]["REMARKS"], "")

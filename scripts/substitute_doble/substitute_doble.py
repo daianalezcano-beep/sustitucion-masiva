@@ -456,15 +456,21 @@ def leer_resultados(driver, found):
 
 
 def normalizar_fila(f):
+    """Separa la celda PU/DO del listado: Pickup, Dropoff y Remarks de la línea (confirmado en una corrida
+    real: 'Pickup: 01/Nov/2026 09:00 hotel prueba Dropoff: 01/Nov/2026 00:00 Remarks: texto prueba')."""
     pu = do = ("", "")
+    remarks = ""
     for r in f.pop("pudo_filas", []):
         etiqueta = (r[0] if r else "").lower()
         if etiqueta.startswith("pickup"):
             pu = L.texto_pudo(r[1:])
         elif etiqueta.startswith("dropoff") or etiqueta.startswith("drop-off"):
             do = L.texto_pudo(r[1:])
+        elif etiqueta.startswith("remarks"):
+            remarks = next((x.strip() for x in r[1:] if x and x.strip()), "")
     f["pickup_fecha_hora"], f["pickup_texto"] = pu
     f["dropoff_fecha_hora"], f["dropoff_texto"] = do
+    f["remarks"] = remarks
     return f
 
 
@@ -671,7 +677,7 @@ def armar_detalle(ctx, loc, sup, stype, cod, filas, fase, resultado, paneles=Non
             "PUDO_ORIGINAL": f["pudo_raw"],
             "PICKUP_TEXTO": p["pickup_texto"] if p else f["pickup_texto"],
             "DROPOFF_TEXTO": p["dropoff_texto"] if p else f["dropoff_texto"],
-            "REMARKS": p["remarks"] if p else "", "FASE": fase, "RESULTADO": resultado, "OBSERVACIONES": "",
+            "REMARKS": p["remarks"] if p else f.get("remarks", ""), "FASE": fase, "RESULTADO": resultado, "OBSERVACIONES": "",
         })
     return out
 

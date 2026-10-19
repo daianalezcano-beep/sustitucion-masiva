@@ -81,6 +81,11 @@ Etiqueta **[DIAG]** = confirmado por esa corrida. **[?]** = sigue sin verificar.
 - Cualquier click a mano en Chrome durante la corrida altera la lectura: el script detecta `Selected` distinto de
   cero antes de seleccionar y corta la fila con ERROR.
 
+## Celda PU/DO con Remarks (corrida de lectura real, 2026-10-19) — **[CORRIDA]**
+- La celda `tpcol-pudodetails` también incluye los Remarks de la línea de servicio: texto crudo
+  `Pickup: 01/Nov/2026 09:00 hotel prueba Dropoff: 01/Nov/2026 00:00 Remarks: texto prueba`. El texto de pickup/drop-off sale del
+  tercer `td` de cada fila. Entonces el listado ya trae pickup, drop-off y Remarks sin tener que seleccionar fila por fila el panel.
+
 ## Sin verificar todavía
 - Qué muestra el panel derecho al seleccionar una fila (y si trae el texto de pickup/dropoff).
 - Comportamiento de Results con muchas filas (virtual scroll).
