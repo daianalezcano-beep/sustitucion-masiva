@@ -63,7 +63,8 @@ VELOCIDAD = float(os.environ.get("TOURPLAN_VELOCIDAD", "1.5"))
 USERNAME = os.environ.get("TOURPLAN_USERNAME", "")
 PASSWORD = os.environ.get("TOURPLAN_PASSWORD", "")
 BASE_URL = os.environ.get("TOURPLAN_BASE_URL", "https://tourplannx.eurotur.com.ar/tourplannx").rstrip("/")
-SS_DIR = os.environ.get("TOURPLAN_SS_DIR", "diag_out")
+SS_DIR = os.path.join(os.environ.get("TOURPLAN_SS_DIR", "diag_out"),
+                      "diag_" + datetime.now().strftime("%Y%m%d-%H%M%S"))   # una subcarpeta por corrida
 HEADLESS = os.environ.get("TOURPLAN_HEADLESS", "0").strip() in ("1", "true", "True")
 
 # Caso controlado (una reserva conocida). Cambiar con variables de entorno.

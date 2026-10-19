@@ -30,6 +30,8 @@ python scripts\substitute_doble\substitute_doble.py
 - `TOURPLAN_FILA=<n>` procesa solo esa fila del Sheet (para la primera prueba); sin ella, todas las PENDIENTE.
 - Hojas del Sheet: `SUBSTITUTE` (entrada), `PROVISORIOS` (config), `SUBSTITUTE_DETALLE` (salida).
 - Usa las credenciales de Google de `~/.tourplan-nx-app/` (las mismas de Drive-TP-NX-App).
+- Cada corrida crea su propia carpeta `salida\lectura_AAAAMMDD-HHMMSS\` (el diagnóstico, `diag_out\diag_AAAAMMDD-HHMMSS\`) con
+  capturas, HTML, `panel_probe.json` y `consola.log` (todo lo que imprime el script). Para mandar una corrida, comprimir esa subcarpeta.
 - En modo lectura la fila queda `PENDIENTE` con el conteo en `OBSERVACIONES`; solo cambian los errores y `DUPLICADO`.
 
 ## Hoja de ruta (orden de trabajo)

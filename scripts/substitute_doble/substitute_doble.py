@@ -630,7 +630,8 @@ def main():
     print(f"Rango de servicios: {L.fmt_tp(desde)} – {L.fmt_tp(hasta)} · tope MAX_RESERVAS={MAX_RESERVAS}")
 
     t_inicio = time.time()
-    os.makedirs(tp.SS_DIR, exist_ok=True)
+    carpeta, corrida = tp.preparar_carpeta_corrida("lectura")
+    print(f"Corrida {corrida} · salida (capturas, HTML, JSON y consola.log): {os.path.abspath(carpeta)}")
     ws, filas, columnas, mapa, ws_det, cols_det = cargar_hojas()
 
     pendientes = [r for r in filas if str(r.get(COL_ESTADO) or "").strip().upper() == "PENDIENTE"]
@@ -657,9 +658,8 @@ def main():
         print("\n⛔ Sin filas PENDIENTE para procesar.")
         return
 
-    ctx = {"corrida": datetime.now().strftime("%Y%m%d-%H%M%S"), "mapa_prov": mapa, "desde": desde,
+    ctx = {"corrida": corrida, "mapa_prov": mapa, "desde": desde,
            "hasta": hasta, "abierta": False, "panel_pendiente": PROBAR_PANEL, "panel": None}
-    print(f"Corrida {ctx['corrida']}")
 
     driver = tp.crear_driver()
     sesion_iniciada = abortado = False
@@ -713,6 +713,7 @@ def main():
             prom = {k: round(sum(t.get(k, 0) for t in tiempos) / len(tiempos), 1) for k in claves}
             print(f"⏱️  Promedio por fila (s): {prom}")
         print(f"📄 Sheet: {SHEET_URL}")
+        print(f"📁 Salida de esta corrida: {os.path.abspath(tp.SS_DIR)}")
 
     if abortado:
         sys.exit(ABORT_EXIT_CODE)

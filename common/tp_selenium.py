@@ -29,8 +29,44 @@ VELOCIDAD = float(os.environ.get("TOURPLAN_VELOCIDAD", "1.5"))
 USERNAME = os.environ.get("TOURPLAN_USERNAME", "")
 PASSWORD = os.environ.get("TOURPLAN_PASSWORD", "")
 BASE_URL = os.environ.get("TOURPLAN_BASE_URL", "https://tourplannx.eurotur.com.ar/tourplannx").rstrip("/")
-SS_DIR = os.environ.get("TOURPLAN_SS_DIR", "salida")
+SS_BASE = os.environ.get("TOURPLAN_SS_DIR", "salida")
+SS_DIR = SS_BASE   # carpeta de salida vigente; preparar_carpeta_corrida() la reemplaza por una subcarpeta
 HEADLESS = os.environ.get("TOURPLAN_HEADLESS", "0").strip() in ("1", "true", "True")
+
+
+class _Tee:
+    """Duplica lo que se imprime: sigue yendo a la consola (y a la app) y además a consola.log."""
+
+    def __init__(self, principal, archivo):
+        self._principal, self._archivo = principal, archivo
+
+    def write(self, texto):
+        self._principal.write(texto)
+        try:
+            self._archivo.write(texto)
+            self._archivo.flush()
+        except Exception:
+            pass
+        return len(texto)
+
+    def flush(self):
+        self._principal.flush()
+
+    def __getattr__(self, nombre):
+        return getattr(self._principal, nombre)
+
+
+def preparar_carpeta_corrida(prefijo):
+    """Crea SS_BASE/<prefijo>_<AAAAMMDD-HHMMSS>/ y la usa para capturas, HTML, JSON y
+    consola.log de esta corrida. Devuelve (carpeta, id_de_corrida)."""
+    global SS_DIR
+    corrida = time.strftime("%Y%m%d-%H%M%S")
+    SS_DIR = os.path.join(SS_BASE, f"{prefijo}_{corrida}")
+    os.makedirs(SS_DIR, exist_ok=True)
+    log = open(os.path.join(SS_DIR, "consola.log"), "a", encoding="utf-8")
+    sys.stdout = _Tee(sys.stdout, log)
+    sys.stderr = _Tee(sys.stderr, log)
+    return SS_DIR, corrida
 
 
 def pausa(seg):
