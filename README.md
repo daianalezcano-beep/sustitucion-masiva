@@ -17,7 +17,8 @@ falso): **sin correr todavía el modo aplicar contra Tourplan**. Ver `docs/fase2
 ## App local (recomendado para probar)
 
 Doble clic en `run_app.bat` (crea su entorno de Python la primera vez e instala lo necesario; necesita Python y Chrome). Abre la app en
-el navegador:
+el navegador. Para traer los cambios nuevos del repo, doble clic en `actualizar_app.bat` (hace `git pull`; la carpeta tiene que ser un
+clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezcano\PortableGit`):
 
 - **Configuración** (una vez por PC; se comparte con la otra app de Tourplan): usuario y contraseña de Tourplan, URL del Sheet.
 - **Parámetros:** modo (solo revisar / aplicar), servicios desde (obligatoria; avisa si es anterior a hoy) y hasta (por defecto
