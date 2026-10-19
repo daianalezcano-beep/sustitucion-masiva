@@ -121,8 +121,7 @@ def render_parametros(estado):
                                    disabled=bloqueado, key="max_reservas",
                                    help="Si una combinación tiene más reservas, termina en ERROR sin leer ni tocar nada.")
 
-    sheet_url = st.text_input("URL del Google Sheet", value=cfg.get("sheet_urls", {}).get(CLAVE_SHEET, ""),
-                              disabled=bloqueado, key="sheet_url")
+    sheet_url = cfg.get("sheet_urls", {}).get(CLAVE_SHEET, "")     # se carga solo en ⚙️ Configuración
     c4, c5 = st.columns([3, 1])
     base_url = c4.text_input("URL de Tourplan", value=PRODUCCION_URL, disabled=bloqueado, key="base_url",
                              help="Viene con producción. Cambiala solo si querés probar a propósito contra otro ambiente.")

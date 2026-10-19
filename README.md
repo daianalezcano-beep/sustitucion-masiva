@@ -20,9 +20,9 @@ Doble clic en `run_app.bat` (crea su entorno de Python la primera vez e instala 
 el navegador. Para traer los cambios nuevos del repo, doble clic en `actualizar_app.bat` (hace `git pull`; la carpeta tiene que ser un
 clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezcano\PortableGit`):
 
-- **Configuración** (una vez por PC; se comparte con la otra app de Tourplan): usuario y contraseña de Tourplan, URL del Sheet.
+- **Configuración** (una vez por PC; se comparte con la otra app de Tourplan): usuario y contraseña de Tourplan y URL del Sheet (la URL del Sheet se carga solo acá, no en la pantalla principal).
 - **Parámetros:** modo (solo revisar / aplicar), servicios desde (obligatoria; avisa si es anterior a hoy) y hasta (por defecto
-  31/12/2049), tope de reservas por combinación, URL del Sheet y de Tourplan, "solo la fila nº" para probar una combinación.
+  31/12/2049), tope de reservas por combinación, URL de Tourplan, "solo la fila nº" para probar una combinación.
 - **Modo aplicar:** exige tildar que se revisó a mano que no hay códigos `000000` pendientes. Con "pedir confirmación antes de cada OK"
   (por defecto) el script se detiene antes de cada OK y la app muestra la pregunta con **Continuar / Cancelar** (y la captura del modal).
 - **Abortar:** corta al terminar la combinación en curso (completa) y hace logout.

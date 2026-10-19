@@ -36,7 +36,7 @@ def validar_parametros(p):
     for clave, nombre in (("usuario", "el usuario de Tourplan"), ("password", "la contraseña de Tourplan"),
                           ("sheet_url", "la URL del Google Sheet"), ("base_url", "la URL de Tourplan")):
         if not str(p.get(clave) or "").strip():
-            errores.append(f"Falta {nombre}.")
+            errores.append(f"Falta {nombre}" + (" (cargala en ⚙️ Configuración)." if clave != "base_url" else "."))
     if p.get("modo") not in ("lectura", "aplicar"):
         errores.append("Elegí un modo.")
     error_rango = L.validar_rango(_como_datetime(p.get("desde")), _como_datetime(p.get("hasta")))

@@ -57,6 +57,20 @@ class App(unittest.TestCase):
         self.assertTrue(self.boton(at, "Ejecutar").disabled)
         self.assertTrue(any("usuario" in c.value for c in at.caption))
 
+    def test_la_url_del_sheet_solo_se_pide_en_configuracion(self):
+        user_config.guardar({"tp_usuario": "u", "tp_password": "p", "headless": False, "sheet_urls": {}})
+        at = self.app()
+        self.assertFalse(at.exception)
+        etiquetas = [t.label for t in at.text_input]
+        self.assertEqual(sum("Sheet" in e for e in etiquetas), 1)             # solo el de Configuración
+        self.assertNotIn("sheet_url", [t.key for t in at.text_input])
+        self.assertTrue(self.boton(at, "Ejecutar").disabled)                    # sin URL guardada no se puede ejecutar
+        self.assertTrue(any("URL del Google Sheet" in c.value and "Configuración" in c.value for c in at.caption))
+        user_config.guardar({"tp_usuario": "u", "tp_password": "p", "headless": False,
+                             "sheet_urls": {"substitute_doble": "https://docs.google.com/spreadsheets/d/Z/edit"}})
+        at = self.app()
+        self.assertFalse(self.boton(at, "Ejecutar").disabled)
+
     def test_con_configuracion_se_puede_ejecutar_en_lectura(self):
         self.configurar()
         at = self.app()
