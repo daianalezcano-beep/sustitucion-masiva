@@ -80,6 +80,18 @@ class App(unittest.TestCase):
         at.run()
         self.assertFalse(at.expander[-1].proto.expanded)
 
+    def test_boton_descargar_arriba_de_la_consola_y_sin_hueco_superior(self):
+        self.configurar()
+        at = self.app()
+        self.assertFalse(at.exception)
+        tipos = [(e.type, getattr(e, "label", None) or getattr(e, "value", None)) for e in self._aplanar(at.main)]
+        pos_boton = next(i for i, (t, v) in enumerate(tipos) if t == "download_button" and v == "Descargar")
+        pos_consola = next(i for i, (t, v) in enumerate(tipos) if t == "markdown" and 'class="sd-consola"' in str(v))
+        self.assertLess(pos_boton, pos_consola)                                         # el botón va arriba de la consola
+        self.assertFalse(any(v == "Descargar consola" for _, v in tipos))              # el texto es solo "Descargar"
+        css = next(m.value for m in at.markdown if "stAppDeployButton" in m.value)
+        self.assertIn("padding-top: 0 !important", css)
+
     def test_consola_altura_fija_escapada_y_con_la_ultima_linea_primero(self):
         self.configurar()
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)

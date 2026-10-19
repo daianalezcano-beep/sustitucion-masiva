@@ -90,6 +90,16 @@ CSS = """
 }
 .sd-linea { white-space: pre-wrap; word-break: break-word; }
 .sd-vacia { color: #6b7280; }
+/* Sin el hueco de arriba: se esconden las partes de la barra nativa que no se usan (Deploy, menú) y se le saca
+   el alto y el relleno superior (mismo criterio que la otra app). */
+[data-testid="stToolbarActions"], [data-testid="stAppDeployButton"], [data-testid="stMainMenu"],
+[data-testid="stDecoration"] { display: none !important; }
+header[data-testid="stHeader"], [data-testid="stToolbar"] { background: transparent !important; height: auto !important;
+    min-height: 0 !important; }
+.block-container, [data-testid="stMainBlockContainer"], [data-testid="stMain"],
+[data-testid="stAppViewContainer"] > section { padding-top: 0 !important; }
+.block-container, [data-testid="stMainBlockContainer"] { padding-bottom: 1rem !important; }
+[data-testid="stElementContainer"]:has(style) { display: none !important; }   /* este bloque <style> no deja renglón vacío */
 .sd-subtitulo { font-size: 0.95rem; color: #6b7280; margin-top: -0.9rem; margin-bottom: 0.6rem; }
 </style>
 """
@@ -239,14 +249,14 @@ def render_en_vivo(estado):
                 E.responder_confirmacion(estado["run_dir"], False)
                 st.info("Respuesta enviada: se cancela este OK (no se ejecuta).")
 
-    st.markdown("**Consola**" + ("" if estado["running"] else " &nbsp; En espera"), unsafe_allow_html=True)
+    c1, c2 = st.columns([4, 1])
+    c1.markdown("**Consola**" + ("" if estado["running"] else " &nbsp; En espera"), unsafe_allow_html=True)
+    c2.download_button("Descargar", data="".join(estado["log_lines"]), file_name="consola.txt", mime="text/plain",
+                       key="descargar_consola", use_container_width=True)
     st.markdown(html_consola(estado["log_lines"]), unsafe_allow_html=True)
-    c1, c2 = st.columns([3, 1])
     carpeta = _carpeta_de_salida(estado)
     if carpeta:
-        c1.caption(f"📁 Capturas, HTML y consola.log de esta corrida: `{carpeta}`")
-    c2.download_button("Descargar consola", data="".join(estado["log_lines"]), file_name="consola.txt",
-                       mime="text/plain", use_container_width=True)
+        st.caption(f"📁 Capturas, HTML y consola.log de esta corrida: `{carpeta}`")
     if estado["mensaje"]:
         getattr(st, estado["mensaje"][0])(estado["mensaje"][1])
 
