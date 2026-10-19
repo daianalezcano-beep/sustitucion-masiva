@@ -73,7 +73,8 @@ from selenium.webdriver.common.by import By
 
 from common import logica as L
 from common import tp_selenium as tp
-from common.abort import ABORT_EXIT_CODE, AbortadoPorUsuario, chequear_abort
+from common import ejecucion as E
+from common.abort import ABORT_EXIT_CODE, AbortadoPorUsuario, abort_solicitado, chequear_abort
 from common.sheets_batch import actualizar_columna_rango, agregar_filas_batch, asegurar_columnas_tolerante
 from common.sheets_client import actualizar_fila_sheet, cargar_sheet, conectar_sheets
 from common.user_config import CREDENTIALS_PATH as _CRED_DEFAULT
@@ -95,6 +96,8 @@ PROBAR_PANEL = os.environ.get("TOURPLAN_PROBAR_PANEL", "1").strip() in ("1", "tr
 PROBAR_SELECCION = os.environ.get("TOURPLAN_PROBAR_SELECCION", "1").strip() in ("1", "true", "True")
 ESCRIBIR_DETALLE = os.environ.get("TOURPLAN_ESCRIBIR_DETALLE", "1").strip() in ("1", "true", "True")
 CONFIRMAR_OK = os.environ.get("TOURPLAN_CONFIRMAR_OK", "1").strip() in ("1", "true", "True")
+# Si la app define esta carpeta, la confirmación se hace por archivos (botones en la app); si no, escribiendo SI en la consola.
+CONFIRM_DIR = os.environ.get("TOURPLAN_CONFIRM_DIR", "").strip()
 PANEL_MAX = int(os.environ.get("TOURPLAN_PANEL_MAX", "5"))
 CONFIRMO_SIN_PENDIENTES = os.environ.get("TOURPLAN_CONFIRMO_SIN_PENDIENTES", "").strip().upper()
 # Reusar el diálogo entre filas ahorra ~15 s por fila pero NO está validado: Found podría
@@ -749,6 +752,9 @@ def confirmar(texto):
     """Pausa humana antes de un OK. Con TOURPLAN_CONFIRMAR_OK=0 no pregunta."""
     if not CONFIRMAR_OK:
         return True
+    if CONFIRM_DIR:
+        print(f"\n    ⏸  ESPERANDO TU CONFIRMACIÓN EN LA APP: {texto}")
+        return E.pedir_confirmacion(CONFIRM_DIR, texto, cancelar=abort_solicitado)
     if not sys.stdin or not sys.stdin.isatty():
         raise ErrorFila("ERROR: confirmación", "TOURPLAN_CONFIRMAR_OK=1 necesita una consola interactiva para escribir SI")
     print(f"\n    ⏸  {texto}")
@@ -1043,9 +1049,9 @@ def procesar_fila_aplicar(driver, ctx, row):
         faltan, sobran = L.diferencia_multiconjunto(filas0, r2["filas"])
         paneles2 = leer_panel_filas(driver, r2["filas"]) if r2["found"] == found0 and r2["modo"] == "completa" else None
         r3 = consultar(driver, ctx, loc, stype, psup, pcod, desde, hasta, leer=False)
+        if r3["found"] != 0:     # sustitutos sin asignar: es el caso que detiene toda la corrida
+            raise ErrorFila("ERROR: provisorio", f"El provisorio quedó con {r3['found']} reserva(s) tras la vuelta")
         diferencias = []
-        if r3["found"] != 0:
-            diferencias.append(f"el provisorio quedó con {r3['found']} reserva(s)")
         if r2["found"] != found0:
             diferencias.append(f"el original tiene Found={r2['found']} y antes {found0}")
         if faltan or sobran:
@@ -1190,7 +1196,7 @@ def main():
 
     print("\n⚠ Mientras corre, NO toques la ventana de Chrome (cualquier click a mano puede alterar la lectura).")
     driver = tp.crear_driver()
-    sesion_iniciada = abortado = False
+    sesion_iniciada = abortado = detenida = False
     resumen = {"ok": 0, "error": 0, "reservas": 0}
     tiempos = []
     try:
@@ -1209,6 +1215,9 @@ def main():
                     resumen["ok" if estado == "OK" else "error"] += 1
                     resumen["reservas"] += found
                     print(f"  {'✅' if estado == 'OK' else '⚠'} {estado}: {obs}")
+                    if L.detiene_corrida(estado):
+                        detenida = True
+                        break
                 else:
                     obs, detalle, found, marcas = procesar_fila_lectura(driver, ctx, row)
                     if ws_det is not None and detalle:
@@ -1224,6 +1233,9 @@ def main():
                 print(f"  ❌ {e.estado}: {e.detalle}")
                 escribir_resultado_fila(ws, idx, columnas, e.estado, e.detalle)
                 resumen["error"] += 1
+                if MODO == "aplicar" and L.detiene_corrida(e.estado):
+                    detenida = True
+                    break
             except Exception:
                 ctx["abierta"] = False
                 ss(driver, f"excepcion_fila_{idx}", forzar=True)
@@ -1247,11 +1259,17 @@ def main():
             claves = ["abrir", "filtro", "buscar", "leer"]
             prom = {k: round(sum(t.get(k, 0) for t in tiempos) / len(tiempos), 1) for k in claves}
             print(f"⏱️  Promedio por fila (s): {prom}")
+        if detenida:
+            print("\n🛑 CORRIDA DETENIDA: puede haber reservas en un provisorio (sustitutos sin asignar). No se procesa "
+                  "ninguna otra combinación hasta resolverlo; las filas restantes quedan PENDIENTE. Ver SUBSTITUTE_DETALLE "
+                  "(FASE IDA_EN_CURSO / IDA / VUELTA) y docs/fase2_riesgos.md.")
         print(f"📄 Sheet: {SHEET_URL}")
         print(f"📁 Salida de esta corrida: {os.path.abspath(tp.SS_DIR)}")
 
     if abortado:
         sys.exit(ABORT_EXIT_CODE)
+    if detenida:
+        sys.exit(E.EXIT_DETENIDA)
 
 
 if __name__ == "__main__":

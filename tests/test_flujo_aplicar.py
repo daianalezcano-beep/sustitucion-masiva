@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(RAIZ, "scripts", "substitute_doble"))
 
 try:
     import substitute_doble as sd
+    from common import ejecucion as E
     from common import logica as L
 except ModuleNotFoundError as e:           # selenium / gspread sin instalar
     sd = None
@@ -52,10 +53,12 @@ class HojaDetalle:
 class Mundo:
     """Tourplan simulado."""
 
-    def __init__(self, filas, ignorar=0, panel=None, falla_en=None, cancela_en=None, vuelta_cambia_estado=False):
+    def __init__(self, filas, ignorar=0, panel=None, falla_en=None, cancela_en=None, vuelta_cambia_estado=False,
+                 vuelta_deja_una_en_P=False):
         self.A, self.P = [dict(f) for f in filas], []
         self.ignorar, self.falla_en, self.cancela_en = ignorar, falla_en, cancela_en
         self.vuelta_cambia_estado = vuelta_cambia_estado
+        self.vuelta_deja_una_en_P = vuelta_deja_una_en_P
         self.panel = panel if panel is not None else PANEL
         self.eventos, self.modal = [], None
 
@@ -101,7 +104,10 @@ class FlujoAplicar(unittest.TestCase):
                     f.update(supplier="1ACOS1", code="700GUI")
                     if m.vuelta_cambia_estado:
                         f["status"] = "OT"
-                m.A, m.P = m.A + m.P, []
+                if m.vuelta_deja_una_en_P:
+                    m.A, m.P = m.A + m.P[:-1], m.P[-1:]
+                else:
+                    m.A, m.P = m.A + m.P, []
             return f"summary {etiqueta}"
 
         def leer_panel(driver, filas):
@@ -250,6 +256,12 @@ class FlujoAplicar(unittest.TestCase):
         self.assertEqual(cm.exception.estado, "ERROR_COLGADAS")
         self.assertIn("KeyError", cm.exception.detalle)
 
+    def test_provisorio_con_restos_tras_la_vuelta_es_colgada(self):
+        with self.assertRaises(sd.ErrorFila) as cm:
+            self.correr(Mundo([fila("R1"), fila("R2")], vuelta_deja_una_en_P=True))
+        self.assertEqual(cm.exception.estado, "ERROR_COLGADAS")        # NO "REVISAR": hay un sustituto sin asignar
+        self.assertIn("quedó con 1 reserva", cm.exception.detalle)
+
     def test_diferencias_tras_la_vuelta_se_marcan_para_revision(self):
         estado, obs, _ = self.correr(Mundo([fila("R1")], vuelta_cambia_estado=True))
         self.assertEqual(estado, "ERROR_REVISAR")
@@ -375,6 +387,60 @@ class MainOrquestador(unittest.TestCase):
         e = {i: v for i, v in self.escrituras}
         self.assertEqual((e[2]["ESTADO"], e[4]["ESTADO"]), ("OK", "OK"))
         self.assertIn("aplicada C1", e[2]["OBSERVACIONES"])
+
+    # ── regla: nunca empezar otra combinación si hay sustitutos sin asignar ──
+    def _aplicar_y_ver_filas_procesadas(self, comportamiento):
+        sd.MODO = "aplicar"
+        procesadas = []
+
+        def fila_aplicar(d, ctx, row):
+            procesadas.append(row["CODIGO"])
+            return comportamiento(row["CODIGO"])
+        sd.procesar_fila_aplicar = fila_aplicar
+        codigo_salida = None
+        try:
+            sd.main()
+        except SystemExit as e:
+            codigo_salida = e.code
+        return procesadas, codigo_salida, {i: v for i, v in self.escrituras}
+
+    def test_colgadas_detiene_la_corrida(self):
+        def comp(cod):
+            if cod == "C1":
+                raise sd.ErrorFila("ERROR_COLGADAS", "quedaron en el provisorio")
+            return ("OK", "ok", 1)
+        procesadas, salida, e = self._aplicar_y_ver_filas_procesadas(comp)
+        self.assertEqual(procesadas, ["C1"])                          # C2 NO se empieza
+        self.assertEqual(salida, E.EXIT_DETENIDA)
+        self.assertEqual(e[2]["ESTADO"], "ERROR_COLGADAS")
+        self.assertNotIn(4, e)                                        # la siguiente queda PENDIENTE (sin tocar)
+        self.assertEqual(self.llamadas[-2:], ["logout", "quit"])      # igual se cierra la sesión
+
+    def test_revisar_y_provisorio_en_uso_tambien_detienen(self):
+        for estado_devuelto, como in (("ERROR_REVISAR", "retorna"), ("ERROR: provisorio en uso", "lanza")):
+            self.llamadas.clear(); self.escrituras.clear()
+
+            def comp(cod, estado_devuelto=estado_devuelto, como=como):
+                if como == "lanza":
+                    raise sd.ErrorFila(estado_devuelto, "x")
+                return (estado_devuelto, "dif", 1)
+            procesadas, salida, _ = self._aplicar_y_ver_filas_procesadas(comp)
+            self.assertEqual((procesadas, salida), (["C1"], E.EXIT_DETENIDA), estado_devuelto)
+
+    def test_un_rechazo_previo_no_detiene(self):
+        def comp(cod):
+            if cod == "C1":
+                raise sd.ErrorFila("ERROR: no soportado en esta fase", "varios estados")
+            return ("OK", "ok", 1)
+        procesadas, salida, e = self._aplicar_y_ver_filas_procesadas(comp)
+        self.assertEqual(procesadas, ["C1", "C2"])                    # no se movió nada, se sigue
+        self.assertIsNone(salida)
+        self.assertEqual(e[4]["ESTADO"], "OK")
+
+    def test_en_lectura_los_errores_no_detienen(self):
+        sd.procesar_fila_lectura = lambda d, ctx, row: (_ for _ in ()).throw(sd.ErrorFila("ERROR_COLGADAS", "x"))
+        sd.main()                                                      # no debe cortar ni salir con 76
+        self.assertEqual(len([1 for i, v in self.escrituras if v.get("ESTADO") == "ERROR_COLGADAS"]), 2)
 
     def test_aplicar_sin_confirmacion_no_abre_el_navegador(self):
         sd.MODO = "aplicar"

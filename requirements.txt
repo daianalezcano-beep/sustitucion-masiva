@@ -3,3 +3,4 @@ webdriver-manager>=4.0
 gspread
 google-auth
 google-auth-oauthlib
+streamlit>=1.37

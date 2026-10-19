@@ -253,3 +253,14 @@ def detalle_pendiente(filas_detalle):
             out[(_n(f.get("LOCATION")), _n(f.get("SUPPLIER")), _n(f.get("SERVICE TYPE")),
                  _n(f.get("CODIGO")), str(f.get("CORRIDA") or "").strip())] += 1
     return dict(out)
+
+
+# Regla de la usuaria: nunca se empieza la ida de otra combinación si hay sustitutos sin asignar. Estos
+# estados (reservas que pueden haber quedado en un provisorio, un resultado inesperado tras una
+# sustitución real, o restos de una corrida anterior) detienen toda la corrida; las filas que faltan
+# quedan PENDIENTE.
+ESTADOS_QUE_DETIENEN = ("ERROR_COLGADAS", "ERROR_REVISAR", "ERROR: provisorio en uso")
+
+
+def detiene_corrida(estado):
+    return str(estado or "").strip() in ESTADOS_QUE_DETIENEN

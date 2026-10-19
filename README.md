@@ -5,7 +5,8 @@ Actualización de costos en reservas de Tourplan NX por doble sustitución
 (`000000`) -> original, conservando el precio de venta (Retain Sell Price).
 
 **Estado:** Fase 1 (modo lectura) **probada contra Tourplan real con una fila**. Fase 2 (modo aplicar, ida y vuelta de UNA
-combinación) implementada y probada solo por simulación: **sin correr todavía contra Tourplan**. Ver `docs/fase2_riesgos.md`.
+combinación) y la **app local** implementadas y probadas por simulación (la app también en un navegador real contra un script
+falso): **sin correr todavía el modo aplicar contra Tourplan**. Ver `docs/fase2_riesgos.md`.
 
 - `scripts/substitute_doble/diag_substitute.py` — diagnóstico (Fase 0, ya corrido; ver `docs/hallazgos_fase0.md`).
 - `scripts/substitute_doble/substitute_doble.py` — script principal (hoy solo `TOURPLAN_MODO=lectura`).
@@ -13,7 +14,32 @@ combinación) implementada y probada solo por simulación: **sin correr todavía
   más `logica.py` (lógica pura), `tp_selenium.py` y `sheets_batch.py`.
 - `tests/test_logica.py` — `python -m unittest discover -s tests -v`.
 
-## Correr el modo lectura (Windows, cmd)
+## App local (recomendado para probar)
+
+Doble clic en `run_app.bat` (crea su entorno de Python la primera vez e instala lo necesario; necesita Python y Chrome). Abre la app en
+el navegador:
+
+- **Configuración** (una vez por PC; se comparte con la otra app de Tourplan): usuario y contraseña de Tourplan, URL del Sheet.
+- **Parámetros:** modo (solo revisar / aplicar), servicios desde (obligatoria; avisa si es anterior a hoy) y hasta (por defecto
+  31/12/2049), tope de reservas por combinación, URL del Sheet y de Tourplan, "solo la fila nº" para probar una combinación.
+- **Modo aplicar:** exige tildar que se revisó a mano que no hay códigos `000000` pendientes. Con "pedir confirmación antes de cada OK"
+  (por defecto) el script se detiene antes de cada OK y la app muestra la pregunta con **Continuar / Cancelar** (y la captura del modal).
+- **Abortar:** corta al terminar la combinación en curso (completa) y hace logout.
+- **Consola en vivo**, descarga de la consola, y estado de la cola (Pendiente / OK / Error / Duplicado) con **Refrescar**.
+- Si la corrida termina con el aviso **🛑 Corrida detenida** (ver abajo) no se procesó ninguna otra combinación.
+
+La app lanza `scripts/substitute_doble/substitute_doble.py` como subproceso con las mismas variables `TOURPLAN_*` de abajo.
+La lógica sin interfaz está en `common/ejecucion.py` (con pruebas).
+
+## Regla de seguridad: nunca empezar otra combinación con sustitutos sin asignar
+
+Si una combinación termina en `ERROR_COLGADAS` (falló después de la ida: puede haber reservas en el provisorio), en `ERROR_REVISAR`
+(resultado inesperado tras una sustitución real) o se detecta un provisorio con reservas (`ERROR: provisorio en uso`), la corrida
+**se detiene** (código de salida 76): las filas restantes quedan `PENDIENTE` y no se empieza la ida de ninguna otra combinación. Además, al
+arrancar en modo aplicar, el script se niega a correr si `SUBSTITUTE_DETALLE` tiene reservas en `FASE` `IDA_EN_CURSO` / `IDA` / `VUELTA`.
+Los rechazos previos a tocar nada (`ERROR: no soportado en esta fase`, `ERROR: sin provisorio`, etc.) no detienen la corrida.
+
+## Correr desde la consola (alternativa) — modo lectura (Windows, cmd)
 
 ```
 set TOURPLAN_USERNAME=usuario
@@ -61,6 +87,7 @@ python scripts\substitute_doble\substitute_doble.py
   primeras pruebas; con `0` no pregunta).
 - `TOURPLAN_CONFIRMO_SIN_PENDIENTES=SI` es obligatorio: confirma que se revisó a mano que no quedan `000000` pendientes. Además el script
   no arranca si `SUBSTITUTE_DETALLE` tiene reservas en `FASE` `IDA_EN_CURSO` / `IDA` / `VUELTA` (una corrida anterior cortada).
+- Sin la app, `TOURPLAN_CONFIRMAR_OK=1` pide escribir `SI` en la consola; con la app (`TOURPLAN_CONFIRM_DIR`) la confirmación es por botones.
 - Límites de esta fase (se rechazan antes de tocar nada): un único estado de servicio por combinación, hasta `TOURPLAN_PANEL_MAX`
   (5) reservas y todas con los mismos datos de pickup/drop-off/remarks.
 - `Retain Sell Price` y `Retain Voucher Text` no se tocan: antes de cada OK se verifica (por el texto del label) que sigan tildados.
@@ -71,9 +98,20 @@ python scripts\substitute_doble\substitute_doble.py
    mano: reporte de Tourplan → quitar duplicados → pegar las combinaciones únicas en `SUBSTITUTE` con `ESTADO=PENDIENTE`
    (columnas del reporte: Location, Supplier, Service, Option → `LOCATION`, `SUPPLIER`, `SERVICE TYPE`, `CODIGO`).
 2. **Fase 2 — modo aplicar** con una sola combinación (ida y vuelta, verificación final contra la foto inicial): implementada, falta correrla.
-3. **Fase 3 — integración con la app**: fechas Desde/Hasta, tope `MAX_RESERVAS`, check manual de que no quedan
-   `000000` pendientes, plantilla del Sheet.
+3. **Fase 3 — app local**: hecha (ver arriba). Pendiente: plantilla del Sheet.
 4. **Fase 4 — flujo optimizado**: indicar solo Location + Service Type (o Supplier) y fecha Desde; la app genera el
    reporte de Tourplan, obtiene las combinaciones del CSV y hace los reemplazos. Requiere diagnosticar antes la
    pantalla del reporte (generación y descarga).
 5. **Modo recuperación** (devolver al original lo que quedó en un provisorio): solo si se pide.
+
+## Pendientes anotados
+
+- **Listado de provisorios:** cuando estén creados todos los options `000000` (uno por Location × Service Type; con el CSV de GU son
+  16 Locations: BUE, CAC, CAF, CHA, FTE, HUM, IGR, JUJ, PAI, PNT, PUR, RTU, SLA, TIL, TUC, USH), pasar la lista al código. Hoy
+  `SUPPLIER_PROVISORIO = {"GU": "GUIAPO"}` define solo el proveedor por Service Type y la existencia de cada provisorio se
+  valida en Tourplan al correr; con la lista, el código pasaría a aceptar solo las combinaciones Location + Service Type listadas.
+- Selectores del modal Replacement Service que **no están en las grabaciones**: los campos de pickup/drop-off/Remarks y los Retain
+  (se buscan por texto/ids del panel y se vuelcan HTML y captura antes de cada OK); confirmar en la primera corrida real.
+- Soporte de combinaciones con varios estados de servicio, más reservas y datos de pickup distintos (hoy se rechazan).
+- Modo recuperación (devolver al original lo que quedó en un provisorio), solo si se pide.
+- Medir tiempos reales y optimizar (esperas por polling, reusar la pantalla entre combinaciones): ~55 s por combinación en lectura.
