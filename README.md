@@ -31,3 +31,16 @@ python scripts\substitute_doble\substitute_doble.py
 - Hojas del Sheet: `SUBSTITUTE` (entrada), `PROVISORIOS` (config), `SUBSTITUTE_DETALLE` (salida).
 - Usa las credenciales de Google de `~/.tourplan-nx-app/` (las mismas de Drive-TP-NX-App).
 - En modo lectura la fila queda `PENDIENTE` con el conteo en `OBSERVACIONES`; solo cambian los errores y `DUPLICADO`.
+
+## Hoja de ruta (orden de trabajo)
+
+1. **Fase 1 — modo lectura** (implementada, falta probarla): una fila y después un lote chico. La entrada se arma a
+   mano: reporte de Tourplan → quitar duplicados → pegar las combinaciones únicas en `SUBSTITUTE` con `ESTADO=PENDIENTE`
+   (columnas del reporte: Location, Supplier, Service, Option → `LOCATION`, `SUPPLIER`, `SERVICE TYPE`, `CODIGO`).
+2. **Fase 2 — modo aplicar** con una sola combinación (ida y vuelta, verificación final contra la foto inicial).
+3. **Fase 3 — integración con la app**: fechas Desde/Hasta, tope `MAX_RESERVAS`, check manual de que no quedan
+   `000000` pendientes, plantilla del Sheet.
+4. **Fase 4 — flujo optimizado**: indicar solo Location + Service Type (o Supplier) y fecha Desde; la app genera el
+   reporte de Tourplan, obtiene las combinaciones del CSV y hace los reemplazos. Requiere diagnosticar antes la
+   pantalla del reporte (generación y descarga).
+5. **Modo recuperación** (devolver al original lo que quedó en un provisorio): solo si se pide.
