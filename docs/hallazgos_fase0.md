@@ -53,9 +53,9 @@ Etiqueta **[DIAG]** = confirmado por esa corrida. **[?]** = sigue sin verificar.
   `tpcol-optioncode`, `tpcol-optiondescription`, `tpcol-bookingname`, `tpcol-bookingreference`,
   `tpcol-traveldate`, `tpcol-servicedate`, `tpcol-servicestatus`, `tpcol-pudodetails`; el checkbox es
   `td.tpcol-checkbox.tpcol-substituteservice` **[DIAG]**. Formato de fecha: `01/Nov/2026`.
-- `tpcol-pudodetails` contiene una tabla anidada: filas `Pickup:` / `Dropoff:` con 3 `td` (etiqueta,
-  `DD/Mon/YYYY HH:MM`, y un tercero, probablemente el texto) **[DIAG; el tercero estaba vacío]**.
-  Cuidado: las filas internas son `tr` dentro de la fila de datos; contar solo `tr` con `td.tpcol-optioncode`.
+- `tpcol-pudodetails` contiene `table.pudo-table`: filas `<tr><th>Pickup: </th><td>DD/Mon/YYYY HH:MM</td><td>texto</td></tr>`
+  y otra igual para `Dropoff:`. La etiqueta es un `<th>`, no un `<td>`; el tercer `td` (texto) estaba vacío en el
+  caso de prueba **[DIAG]**. Las filas internas son `tr` dentro de la fila de datos: contar solo `tr` con `td.tpcol-optioncode`.
 - Contadores: `tp-label[tplabeltype="Found"]` / `[tplabeltype="Selected"]` → el valor está en el
   `label` de la celda `td.align-right` de la misma fila **[DIAG]** (Found=1, Selected=0 en reposo).
 - Panel derecho: `#selectServiceLine` (checkbox "Substitute Service"), `#pickupDate`, `#pickupTime`,
