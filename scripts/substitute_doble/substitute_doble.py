@@ -867,29 +867,31 @@ def marcar_checkbox(driver, regex, nombre):
     raise ErrorFila("ERROR: pickup/dropoff", f"No pude tildar '{nombre}' en el modal")
 
 
-def escribir_en_host(driver, host_id, valor):
-    css = f"#{host_id} input:not([type=hidden]), #{host_id} textarea"
+def escribir_en_host(driver, host, valor):
+    """`host`: selector CSS del componente que contiene el input/textarea (ids y tptype del HTML real
+    del modal: #pickupTime, tp-textarea[tptype=PickupRemarks], #remarks, ...)."""
+    css = f"{host} input:not([type=hidden]), {host} textarea"
     els = dialog_repl(driver).find_elements(By.CSS_SELECTOR, css)
     if not els:
-        raise ErrorFila("ERROR: pickup/dropoff", f"No encontré el campo #{host_id} en el modal")
+        raise ErrorFila("ERROR: pickup/dropoff", f"No encontré el campo {host} en el modal")
     set_val_con_blur(driver, els[0], valor)
     pausa(0.6)
     leido = (dialog_repl(driver).find_elements(By.CSS_SELECTOR, css)[0].get_attribute("value") or "").strip()
     if leido != valor:
-        raise ErrorFila("ERROR: pickup/dropoff", f"#{host_id}: escribí '{valor}' y quedó '{leido}'")
+        raise ErrorFila("ERROR: pickup/dropoff", f"{host}: escribí '{valor}' y quedó '{leido}'")
 
 
 def completar_pudo_modal(driver, pudo):
     """Tilda 'Enter Pickup/Drop-off Details' y repone hora y texto de pickup/drop-off y los Remarks."""
     marcar_checkbox(driver, r"enter\s+pickup\s*/\s*drop-?off\s+details", "Enter Pickup/Drop-off Details")
-    escribir_en_host(driver, "pickupTime", pudo["pickup_hora"])
+    escribir_en_host(driver, "#pickupTime", pudo["pickup_hora"])
     if pudo["pickup_texto"]:
-        escribir_en_host(driver, "pickupRemarks", pudo["pickup_texto"])
-    escribir_en_host(driver, "dropoffTime", pudo["dropoff_hora"])
+        escribir_en_host(driver, "tp-textarea[tptype=PickupRemarks]", pudo["pickup_texto"])
+    escribir_en_host(driver, "#dropoffTime", pudo["dropoff_hora"])
     if pudo["dropoff_texto"]:
-        escribir_en_host(driver, "dropoffRemarks", pudo["dropoff_texto"])
+        escribir_en_host(driver, "tp-textarea[tptype=DropoffRemarks]", pudo["dropoff_texto"])
     if pudo["remarks"]:
-        escribir_en_host(driver, "remarks", pudo["remarks"])
+        escribir_en_host(driver, "#remarks", pudo["remarks"])
 
 
 def llenar_modal(driver, loc, stype, sup, cod, status, pudo, etiqueta):
