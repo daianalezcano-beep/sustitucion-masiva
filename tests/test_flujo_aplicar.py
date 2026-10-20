@@ -8,6 +8,7 @@ Correr:  python -m unittest discover -s tests -v   (necesita selenium instalado 
 """
 import os
 import sys
+import time
 import unittest
 from datetime import datetime
 
@@ -384,50 +385,130 @@ class HoraEnCadaLinea(unittest.TestCase):
 
 
 @unittest.skipIf(sd is None, "falta una dependencia para importar el script")
-class FiltroReutilizado(unittest.TestCase):
-    """consultar() no vuelve a completar todos los campos si la pantalla ya tiene ese mismo filtro."""
+class FiltroPorCampo(unittest.TestCase):
+    """consultar() solo completa los campos que difieren de lo que la pantalla ya tiene (se lee cada valor real)."""
 
     def setUp(self):
         names = ("preparar_pantalla", "completar_lista", "completar_code", "escribir_fecha", "destildar_booking_status",
-                 "fijar_service_status", "buscar", "esperar_resultados", "leer_resultados", "leer_contadores")
+                 "fijar_service_status", "buscar", "esperar_resultados", "valor_lista", "valor_code", "descripcion_code",
+                 "valor_fecha")
         self.guardado = {n: getattr(sd, n) for n in names}
         self.llamadas = []
-        ll = self.llamadas
-        sd.preparar_pantalla = lambda d, ctx: ll.append("preparar")
-        sd.completar_lista = lambda d, n, nombre, valor, dialogo=None: (ll.append(f"lista {nombre}={valor}"), valor)[1]
-        sd.completar_code = lambda d, c, dialogo=None: (ll.append(f"code {c}"), "desc")[1]
-        sd.escribir_fecha = lambda d, campo, dt: (ll.append(f"fecha {campo}"), dt)[1]
-        sd.destildar_booking_status = lambda d: (ll.append("booking"), ("CX - Cancelled", ["a"]))[1]
+        self.pantalla = {1: "AAA - Otra", 2: "", 3: "", "code": "", "desc": "", "desde": None, "hasta": None}
+        ll, pan = self.llamadas, self.pantalla
+        sd.preparar_pantalla = lambda d, ctx: None
+
+        def lista(d, n, nombre, valor, dialogo=None):
+            ll.append(f"lista {nombre}={valor}")
+            pan[n] = f"{valor} - texto"
+            return pan[n]
+
+        def code(d, c, dialogo=None):
+            ll.append(f"code {c}")
+            pan["code"], pan["desc"] = c, "desc " + c
+            return pan["desc"]
+
+        def fecha(d, campo, dt):
+            ll.append(f"fecha {campo}")
+            pan["desde" if campo == "serviceDateFrom" else "hasta"] = dt
+            return dt
+        sd.completar_lista, sd.completar_code, sd.escribir_fecha = lista, code, fecha
+        sd.valor_lista = lambda d, n, dialogo=None: pan[n]
+        sd.valor_code = lambda d, dialogo=None: pan["code"]
+        sd.descripcion_code = lambda d, dialogo=None: pan["desc"]
+        sd.valor_fecha = lambda d, campo: pan["desde" if campo == "serviceDateFrom" else "hasta"]
+        sd.destildar_booking_status = lambda d: ("Cancelled", ["a"])
         sd.fijar_service_status = lambda d, nombre=None, nth=0: ll.append(f"servicestatus {nombre}")
         sd.buscar = lambda d: ll.append("buscar")
-        sd.esperar_resultados = lambda d: (0, 0)
+        sd.esperar_resultados = lambda d, token_previo=None: (0, 0)
 
     def tearDown(self):
         for n, f in self.guardado.items():
             setattr(sd, n, f)
 
-    def consulta(self, ctx, sup="1ACOS1", ss=None):
-        return sd.consultar(None, ctx, "BUE", "GU", sup, "700GUI", datetime(2026, 11, 1), datetime(2049, 12, 31), service_status=ss)
+    def consulta(self, loc="BUE", stype="GU", sup="1ACOS1", cod="700GUI", ss=None):
+        return sd.consultar(None, {}, loc, stype, sup, cod, datetime(2026, 11, 1), datetime(2049, 12, 31), service_status=ss)
+
+    def completados(self):
+        return [x for x in self.llamadas if x.split()[0] in ("lista", "code", "fecha")]
+
+    def test_pantalla_nueva_completa_todo(self):
+        self.consulta()
+        self.assertEqual(self.completados(), ["lista Location=BUE", "lista Service=GU", "lista Supplier=1ACOS1",
+                                              "code 700GUI", "fecha serviceDateFrom", "fecha serviceDateTo"])
 
     def test_mismo_filtro_solo_cambia_el_estado(self):
-        ctx = {}
-        self.consulta(ctx)
-        self.assertEqual(sum(x.startswith("lista") for x in self.llamadas), 3)       # primera vez: todo
+        self.consulta()
         self.llamadas.clear()
-        r = self.consulta(ctx, ss=("Initial", 0))
-        self.assertEqual(self.llamadas, ["preparar", "servicestatus Initial", "buscar"])   # solo el estado y buscar
-        self.assertEqual(r["desc"], "desc")
+        r = self.consulta(ss=("Initial", 0))
+        self.assertEqual(self.completados(), [])
+        self.assertIn("servicestatus Initial", self.llamadas)
+        self.assertEqual(r["desc"], "desc 700GUI")
 
-    def test_otro_proveedor_o_pantalla_reabierta_vuelve_a_completar_todo(self):
-        ctx = {}
-        self.consulta(ctx)
+    def test_original_a_provisorio_solo_cambia_supplier_y_code(self):
+        self.consulta()
         self.llamadas.clear()
-        self.consulta(ctx, sup="1EURO1")                     # P: otro proveedor
-        self.assertEqual(sum(x.startswith("lista") for x in self.llamadas), 3)
+        self.consulta(sup="1EURO1", cod="000000")
+        self.assertEqual(self.completados(), ["lista Supplier=1EURO1", "code 000000"])       # Location, Service y fechas se mantienen
+
+    def test_si_cambia_la_location_se_recarga_toda_la_cadena(self):
+        self.consulta()
         self.llamadas.clear()
-        ctx["filtro"] = None                                  # preparar_pantalla reabrió la pantalla
-        self.consulta(ctx, sup="1EURO1")
-        self.assertEqual(sum(x.startswith("lista") for x in self.llamadas), 3)
+        self.consulta(loc="MDZ")
+        self.assertEqual(self.completados(), ["lista Location=MDZ", "lista Service=GU", "lista Supplier=1ACOS1", "code 700GUI"])
+
+    def test_si_cambia_solo_el_code_se_recarga_solo_el_code(self):
+        self.consulta()
+        self.llamadas.clear()
+        self.consulta(cod="OTRO")
+        self.assertEqual(self.completados(), ["code OTRO"])
+
+    def test_fecha_distinta_se_reescribe(self):
+        self.consulta()
+        self.llamadas.clear()
+        self.pantalla["desde"] = datetime(2026, 1, 1)
+        self.consulta()
+        self.assertEqual(self.completados(), ["fecha serviceDateFrom"])
+
+
+@unittest.skipIf(sd is None, "falta una dependencia para importar el script")
+class EsperaDeResultados(unittest.TestCase):
+    """esperar_resultados no acepta un Found viejo: espera a que la huella del listado cambie (o un mínimo fijo)."""
+
+    def setUp(self):
+        self.guardado = {n: getattr(sd, n) for n in ("leer_contadores", "token_resultados", "esperar_fin_carga")}
+        self.tvel = sd.tp.VELOCIDAD
+        sd.tp.VELOCIDAD = 0.05            # mínimo fijo = 0.2 s en la prueba
+        sd.esperar_fin_carga = lambda d, t=5: True
+        self.sleep = time.sleep
+        time.sleep = lambda s: self.sleep(s / 20)      # los ciclos de espera, 20 veces más rápidos
+
+    def tearDown(self):
+        for n, f in self.guardado.items():
+            setattr(sd, n, f)
+        sd.tp.VELOCIDAD = self.tvel
+        time.sleep = self.sleep
+
+    def test_no_acepta_el_found_de_la_busqueda_anterior(self):
+        # los primeros 5 tokens son los del listado viejo; después aparece el nuevo con otro Found
+        tokens = iter(["viejo"] * 5 + ["nuevo"] * 50)
+        contadores = iter([(7, 0)] * 5 + [(2, 0)] * 50)
+        sd.token_resultados = lambda d: next(tokens)
+        sd.leer_contadores = lambda d: next(contadores)
+        self.assertEqual(sd.esperar_resultados(None, token_previo="viejo"), (2, 0))
+
+    def test_si_el_listado_no_cambia_espera_el_minimo_y_lo_acepta(self):
+        sd.token_resultados = lambda d: "igual"
+        sd.leer_contadores = lambda d: (3, 0)
+        t0 = time.time()
+        self.assertEqual(sd.esperar_resultados(None, token_previo="igual"), (3, 0))
+        self.assertGreaterEqual(time.time() - t0, 0.2)
+
+    def test_sin_token_previo_acepta_en_cuanto_se_estabiliza(self):
+        sd.leer_contadores = lambda d: (3, 0)
+        t0 = time.time()
+        self.assertEqual(sd.esperar_resultados(None), (3, 0))
+        self.assertLess(time.time() - t0, 2)
 
 
 if __name__ == "__main__":

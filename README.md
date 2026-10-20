@@ -92,6 +92,9 @@ python scripts\substitute_doble\substitute_doble.py
 - `TOURPLAN_CONFIRMO_SIN_PENDIENTES=SI` es obligatorio: confirma que se revisó a mano que no quedan `000000` pendientes. Además el script
   no arranca si `SUBSTITUTE_DETALLE` tiene reservas en `FASE` `IDA_EN_CURSO` / `IDA` / `VUELTA` (una corrida anterior cortada).
 - Sin la app, `TOURPLAN_CONFIRMAR_OK=1` pide escribir `SI` en la consola; con la app (`TOURPLAN_CONFIRM_DIR`) la confirmación es por botones.
+- **Tiempos:** el script usa esperas activas (espera a que el campo, el diálogo o el listado estén listos) en lugar de pausas fijas, y al volver a
+  buscar solo completa los campos del filtro que difieren de lo que la pantalla ya tiene (lee el valor real de cada campo; si cambia Location,
+  Service o Supplier recarga también los que dependen de él). Al volver de Results acepta un Found solo si el listado cambió o pasó un mínimo fijo.
 - **Sin tope de reservas.** Si la combinación tiene varios estados de servicio (columna STATUS de Results, con códigos como IT, OK,
   OT), se procesa **un estado por vez** usando el filtro Service Status de Tourplan (solo ese estado tildado) y "Select all". El
   glosario código → texto del filtro está en `SERVICE_STATUS` (`substitute_doble.py`); `CC` y `LC` se llaman igual en el filtro y se

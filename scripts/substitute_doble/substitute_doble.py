@@ -52,6 +52,8 @@ Config (variables de entorno, TOURPLAN_*): ver sección CONFIG.
 # ── CAMBIOS ──
 # v0.3 (2026-10-20): sin tope de reservas; un estado de servicio por vez con el filtro Service Status; pickup/drop-off
 #   solo en los Service Types habilitados (leídos de la celda PU/DO del listado, ya no del panel derecho).
+#   Optimización de tiempos (SIN validar contra Tourplan): esperas activas en lugar de pausas fijas y, al volver a
+#   buscar, solo se completan los campos del filtro que difieren de los que la pantalla ya tiene.
 # v0.2 (2026-10-19): modo aplicar (Fase 2); provisorios en el código (se elimina la hoja PROVISORIOS).
 # v0.1 (2026-10-19): primera versión, solo modo lectura. SIN CORRER contra
 #   Tourplan ni contra el Sheet; la lógica pura (common/logica.py) sí tiene
@@ -210,7 +212,7 @@ def esperar(fn, timeout=10):
                 return v
         except Exception:
             pass
-        time.sleep(0.3)
+        time.sleep(0.15)
     return None
 
 
@@ -267,7 +269,8 @@ def preparar_pantalla(driver, ctx):
         motivo = ""
         try:
             jc(driver, driver.find_element(By.CSS_SELECTOR, "#tptablabel-filterTab"))
-            pausa(1.5)
+            # espera activa: la solapa Filter tiene que estar a la vista (con su campo Location visible)
+            esperar(lambda: dialog_subs(driver).find_element(By.CSS_SELECTOR, "div.col1 li:nth-of-type(1) input").is_displayed(), 4)
             dlg = dialog_subs(driver)
             if dlg is not None and dlg.find_elements(By.CSS_SELECTOR, "div.col1 li:nth-of-type(1) input"):
                 print("    Pantalla reutilizada: se vuelve a la solapa Filter sin reabrir Substitute Service")
@@ -281,7 +284,6 @@ def preparar_pantalla(driver, ctx):
         print("    Reutilización de pantalla desactivada (TOURPLAN_REUSAR_PANTALLA=0): se abre de cero")
     abrir_substitute(driver)
     ctx["abierta"] = True
-    ctx["filtro"] = None      # pantalla recién abierta: el filtro hay que cargarlo completo
 
 
 # ── Filtro ───────────────────────────────────────────────────────────────────
@@ -309,7 +311,7 @@ def completar_lista(driver, n, nombre, valor, dialogo=None):
     inp = dlg.find_element(By.CSS_SELECTOR, f"div.col1 li:nth-of-type({n}) input")
     li = driver.execute_script("return arguments[0].closest('li');", inp)
     set_val(driver, inp, "")
-    pausa(0.4)
+    time.sleep(0.15)
     set_val(driver, inp, valor)
     td = esperar(lambda: driver.execute_script(JS_TD_EXACTO, li, valor), 8)
     if td is None:
@@ -319,13 +321,41 @@ def completar_lista(driver, n, nombre, valor, dialogo=None):
         raise ErrorFila("ERROR: sin coincidencia",
                         f"{nombre} '{valor}': ninguna fila de la lista tiene ese código exacto (vi: {visibles})")
     jc(driver, td)
-    pausa(1.2)
-    final = (dialogo(driver).find_element(
-        By.CSS_SELECTOR, f"div.col1 li:nth-of-type({n}) input").get_attribute("value") or "").strip()
+    # espera activa: el campo toma el valor completo "CÓDIGO - descripción" al confirmarse la selección
+    esperar(lambda: valor_lista(driver, n, dialogo).upper().startswith(valor.upper() + " - "), 5)
+    final = valor_lista(driver, n, dialogo)
     if final.upper() != valor.upper() and not final.upper().startswith(valor.upper() + " - "):
         raise ErrorFila("ERROR: campo distinto",
                         f"{nombre}: pedí '{valor}' y quedó '{final}'")
     return final
+
+
+def valor_lista(driver, n, dialogo=None):
+    """Valor que muestra hoy el campo n (1 Location, 2 Service, 3 Supplier) del diálogo."""
+    dialogo = dialogo or dialog_subs
+    return (dialogo(driver).find_element(By.CSS_SELECTOR, f"div.col1 li:nth-of-type({n}) input").get_attribute("value") or "").strip()
+
+
+def valor_code(driver, dialogo=None):
+    dialogo = dialogo or dialog_subs
+    return (dialogo(driver).find_element(By.CSS_SELECTOR, "#optionCode > tp-validator > input").get_attribute("value") or "").strip()
+
+
+def descripcion_code(driver, dialogo=None):
+    dialogo = dialogo or dialog_subs
+    return (dialogo(driver).find_element(By.CSS_SELECTOR, "input.tpdescription-optiondescription").get_attribute("value") or "").strip()
+
+
+def valor_fecha(driver, campo_id):
+    """Fecha normalizada que guarda hoy el campo (input oculto), o None."""
+    oculto = dialog_subs(driver).find_element(By.CSS_SELECTOR, f"#{campo_id} > div > input:nth-of-type(1)")
+    return L.parsear_fecha(oculto.get_attribute("value"))
+
+
+def coincide_codigo(actual, valor):
+    """El campo muestra el código pedido ('BUE' o 'BUE - Buenos Aires')."""
+    a, v = actual.strip().upper(), valor.strip().upper()
+    return a == v or a.startswith(v + " - ")
 
 
 def completar_code(driver, codigo, dialogo=None):
@@ -333,7 +363,7 @@ def completar_code(driver, codigo, dialogo=None):
     dlg = dialogo(driver)
     cod = dlg.find_element(By.CSS_SELECTOR, "#optionCode > tp-validator > input")
     set_val_con_blur(driver, cod, codigo)
-    pausa(2)
+    pausa(0.8)
     esperar_fin_carga(driver)
 
     def descripcion():
@@ -357,7 +387,7 @@ def escribir_fecha(driver, campo_id, dt):
     dlg = dialog_subs(driver)
     visible = dlg.find_element(By.CSS_SELECTOR, f"#{campo_id} > div > input:nth-of-type(2)")
     set_val_con_blur(driver, visible, L.fmt_ddmmyy(dt))
-    pausa(1.2)
+    esperar(lambda: valor_fecha(driver, campo_id) == dt, 3)      # espera activa a que el campo normalice la fecha
     oculto = dialog_subs(driver).find_element(By.CSS_SELECTOR, f"#{campo_id} > div > input:nth-of-type(1)")
     leido = L.parsear_fecha(oculto.get_attribute("value"))
     if leido != dt:
@@ -430,7 +460,7 @@ def fijar_service_status(driver, nombre=None, nth=0):
         if not cambiar:
             return
         driver.execute_script(JS_CLICK_ESTADOS_IDX, dialog_subs(driver), "service status", cambiar)
-        pausa(1)
+        time.sleep(0.3)
     raise ErrorFila("ERROR: filtro de estado", f"No pude dejar el filtro Service Status en "
                     f"{'todos' if nombre is None else repr(nombre)} (quedó distinto tras 3 intentos)")
 
@@ -465,11 +495,33 @@ def destildar_booking_status(driver, textos=BOOKING_STATUS_EXCLUIR):
 
 # ── Results ──────────────────────────────────────────────────────────────────
 
+JS_TOKEN_RESULTADOS = """
+    var tb = document.querySelector('#resultsTab tp-grid table');
+    var filas = tb ? Array.from(tb.querySelectorAll('tbody > tr')).filter(function(r){
+        return r.querySelector(':scope > td.tpcol-optioncode'); }) : [];
+    var f = document.querySelector('#resultsTab tp-label[tplabeltype="Found"]');
+    var s = document.querySelector('#resultsTab tp-label[tplabeltype="Selected"]');
+    var t = function(e){ var tr = e && e.closest('tr'); return tr ? (tr.innerText || '').replace(/\\s+/g, ' ').trim() : ''; };
+    return [t(f), t(s), filas.length, filas.slice(0, 3).map(function(r){ return (r.innerText || '').replace(/\\s+/g, ' ').trim(); })].join('|');
+"""
+
+
+def token_resultados(driver):
+    """Huella del listado que se ve ahora (Found, Selected y las primeras filas): sirve para saber si Results ya se recargó."""
+    try:
+        return driver.execute_script(JS_TOKEN_RESULTADOS)
+    except Exception:
+        return None
+
+
 def buscar(driver):
-    """Filter -> Results (la solapa Analysis de las grabaciones no lleva nada que completar)."""
+    """Filter -> Results (la solapa Analysis de las grabaciones no lleva nada que completar). Devuelve la huella del
+    listado anterior, tomada ANTES del click, para que esperar_resultados sepa cuándo cambió."""
+    token = token_resultados(driver)
     jc(driver, driver.find_element(By.CSS_SELECTOR, "#tptablabel-resultsTab"))
-    pausa(2)
+    time.sleep(0.3)
     esperar_fin_carga(driver, timeout=30)
+    return token
 
 
 JS_CONTADORES = """
@@ -490,18 +542,23 @@ def leer_contadores(driver):
     return num(f), num(s)
 
 
-def esperar_resultados(driver, timeout=60):
-    """Found estable en dos lecturas seguidas, sin diálogo de carga."""
-    pausa(3)
-    fin = time.time() + timeout * tp.VELOCIDAD
+def esperar_resultados(driver, timeout=60, token_previo=None):
+    """Found estable en dos lecturas seguidas, sin diálogo de carga, y con el listado ya recargado: la huella cambió
+    respecto de `token_previo` (el listado de la búsqueda anterior). Si no cambió no hay forma de distinguir 'aún no
+    recargó' de 'dio lo mismo': en ese caso se espera un mínimo fijo antes de aceptarlo (nunca se acepta un Found viejo)."""
+    inicio = time.time()
+    minimo = 4.0 * tp.VELOCIDAD
+    fin = inicio + timeout * tp.VELOCIDAD
     previo = None
+    time.sleep(0.4)
     while time.time() < fin:
         esperar_fin_carga(driver, 5)
         found, selected = leer_contadores(driver)
-        if found is not None and found == previo:
+        recargado = token_previo is None or token_resultados(driver) != token_previo or time.time() - inicio >= minimo
+        if found is not None and found == previo and recargado:
             return found, selected
         previo = found
-        pausa(1.2)
+        time.sleep(0.4)
     raise ErrorFila("ERROR: Results", "El contador Found no se estabilizó (o no aparece)")
 
 
@@ -647,7 +704,7 @@ def seleccionar_todo(driver, found):
         raise ErrorFila("ERROR: selección", "No encontré el checkbox del encabezado de Results")
     for nombre, el in zip(("label", "i", "input"), candidatos):
         jc(driver, el)
-        pausa(1.5)
+        esperar(lambda: leer_contadores(driver)[1] not in (0, None), 2.5)      # espera activa a que cambie Selected
         sel = leer_contadores(driver)[1]
         if sel == found:
             return nombre, el
@@ -687,34 +744,47 @@ def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, 
     `service_status`: None (todos los estados) o (texto del filtro, n.º de ítem de ese texto).
     Devuelve {found, filas, modo, desc}."""
     marca = marca or (lambda nombre: None)
-    preparar_pantalla(driver, ctx)       # al reabrir la pantalla, ctx["filtro"] vuelve a None
+    preparar_pantalla(driver, ctx)
     marca("abrir")
-    clave = (loc, stype, sup, cod, desde_dt, hasta_dt)
-    if ctx.get("filtro") and ctx["filtro"][0] == clave:
-        # La pantalla ya tiene este mismo filtro completo (se verificó campo por campo al cargarlo): solo cambia Service Status.
-        desc = ctx["filtro"][1]
-        fijar_service_status(driver, *(service_status or (None, 0)))
-        marca("filtro")
-        print(f"    Filtro: el mismo de la búsqueda anterior ({loc} | {stype} | {sup} | {cod}); solo cambia Service Status: "
-              f"{'todos' if not service_status else 'solo ' + service_status[0]}")
-    else:
-        ctx["filtro"] = None      # si algo falla a mitad de la carga, el filtro de la pantalla ya no es confiable
-        ubic = completar_lista(driver, 1, "Location", loc)
-        srv = completar_lista(driver, 2, "Service", stype)
-        prv = completar_lista(driver, 3, "Supplier", sup)
-        desc = completar_code(driver, cod)
-        desde = escribir_fecha(driver, "serviceDateFrom", desde_dt)
-        hasta = escribir_fecha(driver, "serviceDateTo", hasta_dt)
-        excluido, tildados = destildar_booking_status(driver)
-        fijar_service_status(driver, *(service_status or (None, 0)))
-        ctx["filtro"] = (clave, desc)
-        marca("filtro")
-        print(f"    Filtro OK: {ubic} | {srv} | {prv} | {cod} ({desc}) | {L.fmt_tp(desde)}–{L.fmt_tp(hasta)} "
-              f"| Booking Status sin '{excluido}' ({len(tildados)} tildados) "
-              f"| Service Status: {'todos' if not service_status else 'solo ' + service_status[0]}")
+    # Solo se completa lo que difiere de lo que la pantalla ya tiene (se lee el valor real de cada campo, no se
+    # supone). Location -> Service -> Supplier -> Code dependen uno del otro: si uno cambia, se recargan los siguientes.
+    cambia, mantenidos = False, []
 
-    buscar(driver)
-    found, selected = esperar_resultados(driver)
+    def lista(n, nombre, valor):
+        nonlocal cambia
+        actual = valor_lista(driver, n)
+        if not cambia and coincide_codigo(actual, valor):
+            mantenidos.append(nombre)
+            return actual
+        cambia = True
+        return completar_lista(driver, n, nombre, valor)
+
+    ubic = lista(1, "Location", loc)
+    srv = lista(2, "Service", stype)
+    prv = lista(3, "Supplier", sup)
+    if not cambia and coincide_codigo(valor_code(driver), cod) and descripcion_code(driver):
+        desc = descripcion_code(driver)
+        mantenidos.append("Code")
+    else:
+        desc = completar_code(driver, cod)
+    fechas = []
+    for campo, dt in (("serviceDateFrom", desde_dt), ("serviceDateTo", hasta_dt)):
+        if valor_fecha(driver, campo) == dt:
+            fechas.append(dt)
+            mantenidos.append(campo.replace("serviceDate", "fecha "))
+        else:
+            fechas.append(escribir_fecha(driver, campo, dt))
+    desde, hasta = fechas
+    excluido, tildados = destildar_booking_status(driver)
+    fijar_service_status(driver, *(service_status or (None, 0)))
+    marca("filtro")
+    print(f"    Filtro OK: {ubic} | {srv} | {prv} | {cod} ({desc}) | {L.fmt_tp(desde)}–{L.fmt_tp(hasta)} "
+          f"| Booking Status sin '{excluido}' ({len(tildados)} tildados) "
+          f"| Service Status: {'todos' if not service_status else 'solo ' + service_status[0]}"
+          + (f" | sin recargar: {', '.join(mantenidos)}" if mantenidos else ""))
+
+    token = buscar(driver)
+    found, selected = esperar_resultados(driver, token_previo=token)
     marca("buscar")
     print(f"    Found={found} Selected={selected}")
     if selected not in (0, None):
@@ -872,7 +942,7 @@ def abrir_modal_reemplazo(driver, found):
     jc(driver, btn)
     if not esperar(lambda: _visible(driver, dialog_repl(driver)), 15):
         raise ErrorFila("ERROR: modal", "No se abrió el modal Replacement Service")
-    pausa(1)
+    esperar(lambda: dialog_repl(driver).find_element(By.CSS_SELECTOR, "div.col1 li:nth-of-type(1) input").is_displayed(), 5)
 
 
 JS_TD_TEXTO_EXACTO = """
@@ -921,18 +991,21 @@ def completar_service_status(driver, codigo):
     inp = dlg.find_element(By.CSS_SELECTOR, "div.col1 li:nth-of-type(7) input")
     li = driver.execute_script("return arguments[0].closest('li');", inp)
     jc(driver, inp)
-    pausa(0.4)
+    time.sleep(0.15)
     set_val(driver, inp, "")
-    pausa(0.4)
+    time.sleep(0.15)
     set_val(driver, inp, codigo)
     td = esperar(lambda: driver.execute_script(JS_TD_TEXTO_EXACTO, li, codigo), 6)
     if td is None:
         dump_html("modal_service_status_lista", driver.execute_script("return arguments[0].outerHTML;", li))
         raise ErrorFila("ERROR: service status", f"En el modal, la lista de Service Status no tiene una fila con el texto exacto '{codigo}'")
     jc(driver, td)
-    pausa(1.2)
-    final = (dialog_repl(driver).find_element(By.CSS_SELECTOR, "div.col1 li:nth-of-type(7) input")
-             .get_attribute("value") or "").strip()
+
+    def valor_status():
+        return (dialog_repl(driver).find_element(By.CSS_SELECTOR, "div.col1 li:nth-of-type(7) input")
+                .get_attribute("value") or "").strip()
+    esperar(lambda: valor_status() and "default" not in valor_status().lower(), 4)      # espera activa a que tome el valor
+    final = valor_status()
     if not final or "default" in final.lower():
         raise ErrorFila("ERROR: service status", f"Service Status del modal quedó en '{final}' tras elegir '{codigo}'")
     return final
@@ -970,7 +1043,7 @@ def escribir_en_host(driver, host, valor):
     if not els:
         raise ErrorFila("ERROR: pickup/dropoff", f"No encontré el campo {host} en el modal")
     set_val_con_blur(driver, els[0], valor)
-    pausa(0.6)
+    time.sleep(0.2)
     leido = (dialog_repl(driver).find_elements(By.CSS_SELECTOR, css)[0].get_attribute("value") or "").strip()
     if leido != valor:
         raise ErrorFila("ERROR: pickup/dropoff", f"{host}: escribí '{valor}' y quedó '{leido}'")
@@ -1016,13 +1089,21 @@ def ok_modal_y_summary(driver, etiqueta):
     dlg = esperar(lambda: dialog_summary(driver), 30)
     if dlg is None:
         raise ErrorFila("ERROR: summary", "No apareció tp-process-summary tras el OK del modal")
-    pausa(1)
-    texto = driver.execute_script("return (arguments[0].innerText || '').replace(/\\s+/g, ' ').trim();", dlg)
+    JS_TEXTO = "return (arguments[0].innerText || '').replace(/\\s+/g, ' ').trim();"
+    previo = [None]
+
+    def texto_estable():           # espera activa: el texto del Summary ya está y no cambia entre dos lecturas
+        t = driver.execute_script(JS_TEXTO, dlg)
+        ok = bool(t) and t == previo[0]
+        previo[0] = t
+        return ok
+    esperar(texto_estable, 5)
+    texto = driver.execute_script(JS_TEXTO, dlg)
     dump_html(f"summary_{etiqueta}", driver.execute_script("return arguments[0].outerHTML;", dlg))
     ss(driver, f"summary_{etiqueta}", forzar=True)
     print(f"    Summary {etiqueta}: {texto[:300]}")
     jc(driver, dlg.find_element(By.CSS_SELECTOR, "tp-button > button"))
-    pausa(2)
+    esperar(lambda: not _visible(driver, dlg), 6)      # espera activa a que se cierre el Summary
     esperar_fin_carga(driver, timeout=30)
     return texto[:600]
 
