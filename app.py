@@ -24,6 +24,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from common import comparador
 from common import ejecucion as E
 from common import user_config
 from common.sheets_client import cargar_sheet, conectar_sheets
@@ -167,14 +168,12 @@ def render_parametros(estado):
     fila = c5.number_input("Solo la fila nº (0 = todas)", min_value=0, value=0, step=1, disabled=bloqueado, key="fila",
                            help="Para probar una combinación puntual del Sheet.")
 
-    confirmo, confirmar_ok, pudo_types = False, True, ""
+    confirmo, pudo_types = False, ""
     if modo == "aplicar":
         st.warning("⚠️ **Modo aplicar: esta corrida MODIFICA reservas reales en Tourplan.** Procesa todas las reservas de cada "
                    "combinación; si tiene varios estados de servicio, los procesa de a uno con el filtro de Tourplan.")
         confirmo = st.checkbox("Revisé a mano (reporte de Tourplan) que no hay códigos 000000 pendientes de sustituir",
                                disabled=bloqueado, key="confirmo")
-        confirmar_ok = st.checkbox("Pedir mi confirmación antes de cada combinación (la vuelta se hace sola después de la ida; recomendado en las primeras pruebas)",
-                                   value=True, disabled=bloqueado, key="confirmar_ok")
         pudo_types = st.text_input("Service Types en los que analizar pickup / drop-off / Remarks", value="", disabled=bloqueado,
                                    key="pudo_types", placeholder="ej.: CO, TR (vacío = en ninguno)",
                                    help="En estos Service Types el script lee esos datos de cada reserva y los repone en la vuelta. "
@@ -183,7 +182,7 @@ def render_parametros(estado):
 
     usuario, password = user_config.tp_credenciales_default()
     return {"modo": modo, "desde": desde, "hasta": hasta, "sheet_url": sheet_url,
-            "base_url": base_url, "fila": int(fila), "confirmo_sin_pendientes": confirmo, "confirmar_ok": confirmar_ok,
+            "base_url": base_url, "fila": int(fila), "confirmo_sin_pendientes": confirmo, "confirmar_ok": False,
             "pudo_service_types": pudo_types, "usuario": usuario, "password": password}
 
 
@@ -326,6 +325,47 @@ def render_historial(estado):
                                      icon=":material/download:", key=f"hist_{c['carpeta'].name}", use_container_width=True)
 
 
+# ── Comparador de reportes ──────────────────────────────────────────────────
+
+def render_comparador():
+    with st.expander("📊 Comparar reportes antes / después (control de costo y venta)"):
+        st.caption("Subí el reporte Product Analysis exportado **antes** de la corrida y el exportado **después** (con las mismas opciones). "
+                   "Al comparar se ve, por línea, cuánto cambió el costo y si cambió la venta (Retail / Agent). Los archivos no se guardan.")
+        c1, c2 = st.columns(2)
+        antes = c1.file_uploader("Reporte ANTES (.csv)", type=["csv"], key="rep_antes")
+        despues = c2.file_uploader("Reporte DESPUÉS (.csv)", type=["csv"], key="rep_despues")
+        if st.button("Comparar", type="primary", disabled=not (antes and despues), key="comparar"):
+            try:
+                st.session_state["_comparacion"] = comparador.comparar(antes.getvalue(), despues.getvalue())
+            except Exception as e:      # un archivo que no es el reporte no debe romper la app
+                st.session_state["_comparacion"] = None
+                st.error(f"No pude leer los reportes: {e}")
+        res = st.session_state.get("_comparacion")
+        if not res:
+            return
+        r = res["resumen"]
+        if r["Líneas antes"] == 0 or r["Líneas después"] == 0:
+            st.error("Uno de los archivos no tiene líneas: revisá que sea el reporte Product Analysis en CSV.")
+            return
+        if r["Venta modificada"]:
+            st.error(f"⚠️ La venta (Retail / Agent) cambió en {r['Venta modificada']} línea(s). Revisalas antes de seguir.")
+        elif r["Solo en uno de los dos"]:
+            st.warning(f"La venta no cambió, pero {r['Solo en uno de los dos']} línea(s) aparecen en un solo reporte.")
+        else:
+            st.success("La venta no cambió en ninguna línea.")
+        cols = st.columns(len(r))
+        for col, (nombre, n) in zip(cols, r.items()):
+            col.metric(nombre, n)
+        orden = ("Venta modificada", "Solo antes", "Solo después", "Otros cambios", "Costo cambió", "Sin cambios")
+        for estado in orden:
+            filas = [x for x in res["lineas"] if x["Resultado"] == estado]
+            if filas and estado != "Sin cambios":
+                st.markdown(f"**{estado}** ({len(filas)})")
+                st.dataframe(filas, hide_index=True, use_container_width=True)
+        st.download_button("Descargar comparación (CSV)", data=comparador.a_csv(res["lineas"]), file_name="comparacion_reportes.csv",
+                           mime="text/csv", icon=":material/download:", key="descargar_comparacion")
+
+
 # ── Página ──────────────────────────────────────────────────────────────────
 
 def main():
@@ -371,6 +411,7 @@ def main():
     run_every = 1 if estado["running"] else None
     st.fragment(run_every=run_every)(render_en_vivo)(estado)
     render_historial(estado)
+    render_comparador()
 
 
 main()

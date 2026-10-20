@@ -23,9 +23,11 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
 - **Configuración** (una vez por PC; se comparte con la otra app de Tourplan): usuario y contraseña de Tourplan y URL del Sheet (la URL del Sheet se carga solo acá, no en la pantalla principal).
 - **Parámetros:** modo (solo revisar / aplicar), servicios desde (obligatoria; avisa si es anterior a hoy) y hasta (por defecto
   31/12/2049), URL de Tourplan, "solo la fila nº" para probar una combinación.
-- **Modo aplicar:** exige tildar que se revisó a mano que no hay códigos `000000` pendientes. Con "pedir confirmación antes de cada combinación"
-  (por defecto) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
+- **Modo aplicar:** exige tildar que se revisó a mano que no hay códigos `000000` pendientes. La app ya no pide confirmación manual (se quitó el checkbox): las verificaciones del script (provisorio libre antes y después, foto original vs. final) la reemplazan. Con `TOURPLAN_CONFIRMAR_OK=1` (solo desde la consola) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
   **Continuar / Cancelar** (y la captura del modal). La vuelta se hace sola: frenar entre ida y vuelta dejaría reservas en el provisorio.
+- **Comparar reportes antes / después:** desplegable al final de la app. Se suben los dos reportes Product Analysis (CSV, exportados con las mismas
+  opciones), se toca **Comparar** y muestra por línea cuánto cambió el costo y si cambió la venta (Retail / Agent), con las líneas con venta modificada
+  primero y un CSV descargable. Lógica en `common/comparador.py` (acepta `;` o `,` y fechas `21-oct-26` o `21-Oct-2026`; no guarda los archivos).
 - **Abortar:** corta al terminar la combinación en curso (completa) y hace logout.
 - **Consola en vivo** (cada línea con la hora `[HH:MM:SS]`), descarga de la consola, **historial de corridas** (las últimas 15 de la carpeta
   `salida/`, con resultado y botón para descargar el `consola.log` de cada una), y estado de la cola (Pendiente / OK / Error / Duplicado) con **Refrescar**.

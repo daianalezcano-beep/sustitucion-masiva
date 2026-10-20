@@ -189,7 +189,7 @@ class App(unittest.TestCase):
         with mock.patch("subprocess.Popen", ProcFalso):
             self.boton(at, "Ejecutar").click().run()
         env = ProcFalso.llamada[1]["env"]
-        self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_CONFIRMO_SIN_PENDIENTES"], env["TOURPLAN_CONFIRMAR_OK"]), ("aplicar", "SI", "1"))
+        self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_CONFIRMO_SIN_PENDIENTES"], env["TOURPLAN_CONFIRMAR_OK"]), ("aplicar", "SI", "0"))        # sin confirmación manual
         self.assertEqual(env["TOURPLAN_PUDO_SERVICE_TYPES"], "CO,TR,CH")        # vacío por defecto: en ningún Service Type
 
     def test_fechas_invalidas_bloquean(self):
