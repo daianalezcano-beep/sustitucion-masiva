@@ -1335,7 +1335,7 @@ def main():
     if MODO not in ("lectura", "aplicar"):
         raise SystemExit(f"MODO='{MODO}' no válido: usar lectura o aplicar.")
     if MODO == "aplicar":
-        print("⚠⚠⚠  MODO APLICAR: este script MODIFICA reservas en Tourplan (producción).")
+        print(f"⚠⚠⚠  MODO APLICAR: este script MODIFICA reservas en Tourplan ({tp.BASE_URL}).")
     if not SHEET_URL:
         raise ValueError("Falta TOURPLAN_SHEET_URL.")
     if not (tp.USERNAME and tp.PASSWORD):
