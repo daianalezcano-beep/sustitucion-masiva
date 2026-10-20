@@ -383,6 +383,53 @@ class HoraEnCadaLinea(unittest.TestCase):
         self.assertEqual(len(re.findall(r"\[\d\d:\d\d:\d\d\]", destino.getvalue())), 3)
 
 
+@unittest.skipIf(sd is None, "falta una dependencia para importar el script")
+class FiltroReutilizado(unittest.TestCase):
+    """consultar() no vuelve a completar todos los campos si la pantalla ya tiene ese mismo filtro."""
+
+    def setUp(self):
+        names = ("preparar_pantalla", "completar_lista", "completar_code", "escribir_fecha", "destildar_booking_status",
+                 "fijar_service_status", "buscar", "esperar_resultados", "leer_resultados", "leer_contadores")
+        self.guardado = {n: getattr(sd, n) for n in names}
+        self.llamadas = []
+        ll = self.llamadas
+        sd.preparar_pantalla = lambda d, ctx: ll.append("preparar")
+        sd.completar_lista = lambda d, n, nombre, valor, dialogo=None: (ll.append(f"lista {nombre}={valor}"), valor)[1]
+        sd.completar_code = lambda d, c, dialogo=None: (ll.append(f"code {c}"), "desc")[1]
+        sd.escribir_fecha = lambda d, campo, dt: (ll.append(f"fecha {campo}"), dt)[1]
+        sd.destildar_booking_status = lambda d: (ll.append("booking"), ("CX - Cancelled", ["a"]))[1]
+        sd.fijar_service_status = lambda d, nombre=None, nth=0: ll.append(f"servicestatus {nombre}")
+        sd.buscar = lambda d: ll.append("buscar")
+        sd.esperar_resultados = lambda d: (0, 0)
+
+    def tearDown(self):
+        for n, f in self.guardado.items():
+            setattr(sd, n, f)
+
+    def consulta(self, ctx, sup="1ACOS1", ss=None):
+        return sd.consultar(None, ctx, "BUE", "GU", sup, "700GUI", datetime(2026, 11, 1), datetime(2049, 12, 31), service_status=ss)
+
+    def test_mismo_filtro_solo_cambia_el_estado(self):
+        ctx = {}
+        self.consulta(ctx)
+        self.assertEqual(sum(x.startswith("lista") for x in self.llamadas), 3)       # primera vez: todo
+        self.llamadas.clear()
+        r = self.consulta(ctx, ss=("Initial", 0))
+        self.assertEqual(self.llamadas, ["preparar", "servicestatus Initial", "buscar"])   # solo el estado y buscar
+        self.assertEqual(r["desc"], "desc")
+
+    def test_otro_proveedor_o_pantalla_reabierta_vuelve_a_completar_todo(self):
+        ctx = {}
+        self.consulta(ctx)
+        self.llamadas.clear()
+        self.consulta(ctx, sup="1EURO1")                     # P: otro proveedor
+        self.assertEqual(sum(x.startswith("lista") for x in self.llamadas), 3)
+        self.llamadas.clear()
+        ctx["filtro"] = None                                  # preparar_pantalla reabrió la pantalla
+        self.consulta(ctx, sup="1EURO1")
+        self.assertEqual(sum(x.startswith("lista") for x in self.llamadas), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
 

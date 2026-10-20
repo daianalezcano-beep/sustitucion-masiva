@@ -281,6 +281,7 @@ def preparar_pantalla(driver, ctx):
         print("    Reutilización de pantalla desactivada (TOURPLAN_REUSAR_PANTALLA=0): se abre de cero")
     abrir_substitute(driver)
     ctx["abierta"] = True
+    ctx["filtro"] = None      # pantalla recién abierta: el filtro hay que cargarlo completo
 
 
 # ── Filtro ───────────────────────────────────────────────────────────────────
@@ -686,20 +687,31 @@ def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, 
     `service_status`: None (todos los estados) o (texto del filtro, n.º de ítem de ese texto).
     Devuelve {found, filas, modo, desc}."""
     marca = marca or (lambda nombre: None)
-    preparar_pantalla(driver, ctx)
+    preparar_pantalla(driver, ctx)       # al reabrir la pantalla, ctx["filtro"] vuelve a None
     marca("abrir")
-    ubic = completar_lista(driver, 1, "Location", loc)
-    srv = completar_lista(driver, 2, "Service", stype)
-    prv = completar_lista(driver, 3, "Supplier", sup)
-    desc = completar_code(driver, cod)
-    desde = escribir_fecha(driver, "serviceDateFrom", desde_dt)
-    hasta = escribir_fecha(driver, "serviceDateTo", hasta_dt)
-    excluido, tildados = destildar_booking_status(driver)
-    fijar_service_status(driver, *(service_status or (None, 0)))
-    marca("filtro")
-    print(f"    Filtro OK: {ubic} | {srv} | {prv} | {cod} ({desc}) | {L.fmt_tp(desde)}–{L.fmt_tp(hasta)} "
-          f"| Booking Status sin '{excluido}' ({len(tildados)} tildados) "
-          f"| Service Status: {'todos' if not service_status else 'solo ' + service_status[0]}")
+    clave = (loc, stype, sup, cod, desde_dt, hasta_dt)
+    if ctx.get("filtro") and ctx["filtro"][0] == clave:
+        # La pantalla ya tiene este mismo filtro completo (se verificó campo por campo al cargarlo): solo cambia Service Status.
+        desc = ctx["filtro"][1]
+        fijar_service_status(driver, *(service_status or (None, 0)))
+        marca("filtro")
+        print(f"    Filtro: el mismo de la búsqueda anterior ({loc} | {stype} | {sup} | {cod}); solo cambia Service Status: "
+              f"{'todos' if not service_status else 'solo ' + service_status[0]}")
+    else:
+        ctx["filtro"] = None      # si algo falla a mitad de la carga, el filtro de la pantalla ya no es confiable
+        ubic = completar_lista(driver, 1, "Location", loc)
+        srv = completar_lista(driver, 2, "Service", stype)
+        prv = completar_lista(driver, 3, "Supplier", sup)
+        desc = completar_code(driver, cod)
+        desde = escribir_fecha(driver, "serviceDateFrom", desde_dt)
+        hasta = escribir_fecha(driver, "serviceDateTo", hasta_dt)
+        excluido, tildados = destildar_booking_status(driver)
+        fijar_service_status(driver, *(service_status or (None, 0)))
+        ctx["filtro"] = (clave, desc)
+        marca("filtro")
+        print(f"    Filtro OK: {ubic} | {srv} | {prv} | {cod} ({desc}) | {L.fmt_tp(desde)}–{L.fmt_tp(hasta)} "
+              f"| Booking Status sin '{excluido}' ({len(tildados)} tildados) "
+              f"| Service Status: {'todos' if not service_status else 'solo ' + service_status[0]}")
 
     buscar(driver)
     found, selected = esperar_resultados(driver)
