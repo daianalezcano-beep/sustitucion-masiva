@@ -22,7 +22,7 @@ Modos (TOURPLAN_MODO):
     procesar_fila_aplicar). Con TOURPLAN_CONFIRMAR_OK=1 (default) se detiene antes de cada OK
     y espera que se escriba SI en la consola.
 
-Provisorios: viven en el código (SUPPLIER_PROVISORIO). Location y Service Type son los de la
+Provisorios: viven en el código (PROVISORIOS: Location + Service Type, proveedor 1EURO1). Location y Service Type son los de la
 fila de entrada, el código siempre es 000000 y el proveedor depende del Service Type. Si el
 provisorio no existe en Tourplan la fila termina en ERROR sin tocar nada.
 
@@ -117,10 +117,55 @@ URL_OPERATIONS = f"{tp.BASE_URL}/#/operations/OperationsBookings"
 URL_HOME = f"{tp.BASE_URL}/#/home"
 BOOKING_STATUS_EXCLUIR = "CX - Cancelled"
 
-# Provisorios (viven en el código): proveedor por Service Type; Location y Service Type son los de la fila
-# y el código es siempre 000000. Un Service Type que no esté acá termina en ERROR sin tocar Tourplan.
+# Provisorios (viven en el código): uno por Location + Service Type, todos bajo el proveedor 1EURO1 y con el
+# código 000000 (los options Z*NO USAR* ya creados en Tourplan). Una fila cuya Location + Service Type no esté
+# acá termina en ERROR sin tocar Tourplan. Service Types separados por espacio, por Location.
 CODIGO_PROVISORIO = L.CODIGO_PROVISORIO
-SUPPLIER_PROVISORIO = {"GU": "GUIAPO"}
+SUPPLIER_PROVISORIO = "1EURO1"
+PROVISORIOS_POR_LOCATION = {
+    "BAB": "CO",
+    "BRC": "CO GU ST",
+    "BUE": "CM GA GU PJ ST TI TK TR",
+    "CAC": "GA GU TI TK TR",
+    "CAF": "GA GU ST TI TK TR",
+    "CHA": "GU ST TK TR",
+    "COB": "GA GU TI TR",
+    "COL": "CO",
+    "COR": "CO",
+    "CUZ": "CO",
+    "EQS": "CO",
+    "FTE": "GA GU ST TI TK TN TR CH",
+    "GPS": "CO",
+    "HCL": "GA GU TR",
+    "HUM": "GA GU TI TR",
+    "IGR": "CO GA GU ST TK TR",
+    "IGU": "ST TK TR",
+    "JUJ": "GA GU TR",
+    "MDQ": "CO",
+    "MDZ": "CO",
+    "NQN": "EN",
+    "PAI": "CO GU TK",
+    "PMC": "CO",
+    "PML": "GU",
+    "PMY": "CO ST",
+    "PNT": "CO GU TR",
+    "PUQ": "CO GU",
+    "PUR": "CO GA GU ST TI TK TR",
+    "PUX": "CO",
+    "QLM": "TK",
+    "ROS": "CO",
+    "SAL": "GA TI",
+    "SLA": "GA GU ST TI TK TR",
+    "SUS": "GA",
+    "TIL": "GA GU TI TK TR",
+    "TLG": "ST",
+    "TUC": "GU TR",
+    "UAQ": "CO",
+    "UIO": "CO",
+    "USH": "GA GU ST TI TK TR CH",
+    "RTU": "GU TR",
+}
+PROVISORIOS = {(loc, st): SUPPLIER_PROVISORIO for loc, sts in PROVISORIOS_POR_LOCATION.items() for st in sts.split()}
 # La validación previa de que el provisorio está libre mira todo el historial, no solo el rango de la corrida.
 GUARDA_DESDE = datetime(2020, 1, 1)
 
@@ -696,9 +741,9 @@ def procesar_fila_lectura(driver, ctx, row):
         t0 = time.time()
 
     loc, sup, stype, cod = campos_fila(row)
-    psup = L.provisorio_para(stype, SUPPLIER_PROVISORIO)
+    psup = L.provisorio_para(loc, stype, PROVISORIOS)
     texto_prov = (f"{loc}/{psup}/{stype}/{CODIGO_PROVISORIO}" if psup
-                  else f"SIN PROVISORIO (no hay proveedor definido para Service Type '{stype}' en el código)")
+                  else f"SIN PROVISORIO (no hay provisorio definido para {loc}/{stype} en el código)")
 
     r = consultar(driver, ctx, loc, stype, sup, cod, ctx["desde"], ctx["hasta"], marca=marca)
     found, filas, modo_lectura = r["found"], r["filas"], r["modo"]
@@ -937,11 +982,11 @@ def ok_modal_y_summary(driver, etiqueta):
 
 # ── Modo aplicar: una combinación, ida y vuelta ──────────────────────────────
 
-def provisorio_de_fila(stype):
-    psup = L.provisorio_para(stype, SUPPLIER_PROVISORIO)
+def provisorio_de_fila(loc, stype):
+    psup = L.provisorio_para(loc, stype, PROVISORIOS)
     if not psup:
-        raise ErrorFila("ERROR: sin provisorio", f"No hay proveedor de provisorio definido para el Service Type '{stype}' "
-                        f"(tabla SUPPLIER_PROVISORIO del código: {SUPPLIER_PROVISORIO})")
+        raise ErrorFila("ERROR: sin provisorio", f"No hay provisorio definido para {loc}/{stype} "
+                        f"(tabla PROVISORIOS del código, {len(PROVISORIOS)} combinaciones Location + Service Type)")
     return psup, CODIGO_PROVISORIO
 
 
@@ -978,7 +1023,7 @@ def procesar_fila_aplicar(driver, ctx, row):
     Límites de esta fase (se rechazan ANTES de tocar nada): un único estado de servicio, entre 1 y
     PANEL_MAX reservas, y todas con los mismos datos de pickup/drop-off/Remarks."""
     loc, sup, stype, cod = campos_fila(row)
-    psup, pcod = provisorio_de_fila(stype)
+    psup, pcod = provisorio_de_fila(loc, stype)
     desde, hasta = ctx["desde"], ctx["hasta"]
 
     verificar_provisorio_libre(driver, ctx, loc, stype, psup, pcod)
@@ -1224,11 +1269,11 @@ def main():
         unicas = [r for r in unicas if str(r["__row_idx__"]) == FILA]
         print(f"TOURPLAN_FILA={FILA}: se procesa solo esa fila ({len(unicas)} encontrada(s) PENDIENTE).")
 
-    sin_prov = L.service_types_sin_provisorio(unicas, SUPPLIER_PROVISORIO)
-    tipos = sorted({str(f.get("SERVICE TYPE") or "").strip().upper() for f in unicas})
-    print(f"\nService Types del input: {tipos} · provisorios definidos en el código: {SUPPLIER_PROVISORIO} (código {CODIGO_PROVISORIO})")
+    sin_prov = L.combinaciones_sin_provisorio(unicas, PROVISORIOS)
+    print(f"\nProvisorios definidos en el código: {len(PROVISORIOS)} combinaciones Location + Service Type "
+          f"(proveedor {SUPPLIER_PROVISORIO}, código {CODIGO_PROVISORIO})")
     if sin_prov:
-        print(f"⚠ Sin proveedor de provisorio definido para: {sin_prov} → esas filas terminarán en ERROR en modo aplicar.")
+        print(f"⚠ Sin provisorio definido para: {sin_prov} → esas filas terminarán en ERROR en modo aplicar.")
     print(f"Filas PENDIENTE a procesar: {len(unicas)}")
     if not unicas:
         print("\n⛔ Sin filas PENDIENTE para procesar.")

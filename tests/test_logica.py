@@ -73,16 +73,18 @@ class Encabezados(unittest.TestCase):
 
 
 class ProvisoriosEnElCodigo(unittest.TestCase):
-    TABLA = {"GU": "GUIAPO"}
+    TABLA = {("BUE", "GU"): "1EURO1", ("BUE", "TR"): "1EURO1"}
 
-    def test_proveedor_segun_service_type(self):
-        self.assertEqual(L.provisorio_para("gu", self.TABLA), "GUIAPO")
-        self.assertIsNone(L.provisorio_para("HT", self.TABLA))
+    def test_proveedor_segun_location_y_service_type(self):
+        self.assertEqual(L.provisorio_para("bue", "gu", self.TABLA), "1EURO1")
+        self.assertIsNone(L.provisorio_para("BUE", "HT", self.TABLA))       # el Service Type no tiene provisorio en esa Location
+        self.assertIsNone(L.provisorio_para("MDZ", "GU", self.TABLA))       # el Service Type sí, pero no en esa Location
         self.assertEqual(L.CODIGO_PROVISORIO, "000000")
 
-    def test_service_types_sin_provisorio(self):
-        filas = [{"SERVICE TYPE": "GU"}, {"SERVICE TYPE": " ht "}, {"SERVICE TYPE": "TF"}, {"SERVICE TYPE": ""}, {"SERVICE TYPE": "HT"}]
-        self.assertEqual(L.service_types_sin_provisorio(filas, self.TABLA), ["HT", "TF"])
+    def test_combinaciones_sin_provisorio(self):
+        filas = [{"LOCATION": "BUE", "SERVICE TYPE": "GU"}, {"LOCATION": "MDZ", "SERVICE TYPE": " gu "},
+                 {"LOCATION": "BUE", "SERVICE TYPE": "ht"}, {"LOCATION": "", "SERVICE TYPE": "GU"}, {"LOCATION": "MDZ", "SERVICE TYPE": "GU"}]
+        self.assertEqual(L.combinaciones_sin_provisorio(filas, self.TABLA), ["BUE/HT", "MDZ/GU"])
 
 
 class ComparacionesYPanel(unittest.TestCase):
@@ -93,7 +95,7 @@ class ComparacionesYPanel(unittest.TestCase):
         self.assertEqual(len(sa), 1)       # falta una A repetida
         self.assertEqual(len(sb), 1)       # sobra C
         # subconjunto por campos de reserva (la moneda no cuenta aquí)
-        solo_a, sobran = L.diferencia_multiconjunto(a, [fila("A", supplier="GUIAPO", code="000000")], L.CAMPOS_RESERVA)
+        solo_a, sobran = L.diferencia_multiconjunto(a, [fila("A", supplier="1EURO1", code="000000")], L.CAMPOS_RESERVA)
         self.assertEqual((len(solo_a), sobran), (2, []))
         self.assertEqual(len(L.diferencia_multiconjunto(a, [fila("Z")], L.CAMPOS_RESERVA)[1]), 1)
 

@@ -60,12 +60,11 @@ python scripts\substitute_doble\substitute_doble.py
 - En modo lectura el script también prueba "Select all" con el checkbox del encabezado de Results: verifica `Selected == Found` y
   deselecciona, sin tocar nunca OK (`TOURPLAN_PROBAR_SELECCION=0` lo desactiva). Es la misma mecánica que usará el modo aplicar.
 - Hojas del Sheet: `SUBSTITUTE` (entrada) y `SUBSTITUTE_DETALLE` (salida). Los provisorios **no** están en el Sheet: viven en el código
-  (`SUPPLIER_PROVISORIO` en `substitute_doble.py`): Location y Service Type son los de la fila, el código es siempre `000000`
-  y el proveedor depende del Service Type (hoy `GU` → `GUIAPO`).
+  (`PROVISORIOS_POR_LOCATION` en `substitute_doble.py`): hay uno por Location + Service Type (116 combinaciones, solo options
+  Z*NO USAR*), siempre con proveedor `1EURO1` y código `000000`. Si la Location + Service Type de una fila no está en esa tabla, la fila
+  termina en `ERROR: sin provisorio` sin abrir Tourplan.
 - Los encabezados del Sheet se aceptan con guion bajo o espacio y en cualquier combinación de mayúsculas
-  (`SERVICE_TYPE` = `SERVICE TYPE`). `PROVISORIOS` necesita las 4 columnas completas en cada fila: `LOCATION`, `SERVICE TYPE`,
-  `SUPPLIER_PROV`, `CODIGO_PROV` (también se acepta el formato `LOCATION`, `SUPPLIER`, `SERVICE_TYPE`, `CODIGO`, donde SUPPLIER y CODIGO
-  son los del provisorio). Hay un provisorio por Location + Service Type y sirve para cualquier código de esa combinación; al arrancar el script imprime qué leyó de esa hoja.
+  (`SERVICE_TYPE` = `SERVICE TYPE`).
 - Usa las credenciales de Google de `~/.tourplan-nx-app/` (las mismas de Drive-TP-NX-App).
 - Cada corrida crea su propia carpeta `salida\lectura_AAAAMMDD-HHMMSS\` (el diagnóstico, `diag_out\diag_AAAAMMDD-HHMMSS\`) con
   capturas, HTML, `panel_probe.json` y `consola.log` (todo lo que imprime el script). Para mandar una corrida, comprimir esa subcarpeta.
@@ -109,10 +108,8 @@ python scripts\substitute_doble\substitute_doble.py
 
 ## Pendientes anotados
 
-- **Listado de provisorios:** cuando estén creados todos los options `000000` (uno por Location × Service Type; con el CSV de GU son
-  16 Locations: BUE, CAC, CAF, CHA, FTE, HUM, IGR, JUJ, PAI, PNT, PUR, RTU, SLA, TIL, TUC, USH), pasar la lista al código. Hoy
-  `SUPPLIER_PROVISORIO = {"GU": "GUIAPO"}` define solo el proveedor por Service Type y la existencia de cada provisorio se
-  valida en Tourplan al correr; con la lista, el código pasaría a aceptar solo las combinaciones Location + Service Type listadas.
+- **Provisorios:** el listado ya está en el código (116 combinaciones Location + Service Type bajo `1EURO1`). Si se crea uno nuevo en
+  Tourplan hay que agregarlo a `PROVISORIOS_POR_LOCATION`. Se eliminó el provisorio de prueba `BUE/GUIAPO/GU/000000`.
 - Selectores del modal Replacement Service que **no están en las grabaciones**: los campos de pickup/drop-off/Remarks y los Retain
   (se buscan por texto/ids del panel y se vuelcan HTML y captura antes de cada OK); confirmar en la primera corrida real.
 - Soporte de combinaciones con varios estados de servicio, más reservas y datos de pickup distintos (hoy se rechazan).

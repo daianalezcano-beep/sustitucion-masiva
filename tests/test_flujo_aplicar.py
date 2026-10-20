@@ -73,8 +73,8 @@ class FlujoAplicar(unittest.TestCase):
         m = mundo
 
         def consultar(driver, ctx, loc, stype, sup, cod, d, h, leer=True, marca=None):
-            m.eventos.append(f"consultar {'P' if sup == 'GUIAPO' else 'A'}")
-            filas = m.P if sup == "GUIAPO" else m.A
+            m.eventos.append(f"consultar {'P' if sup == '1EURO1' else 'A'}")
+            filas = m.P if sup == "1EURO1" else m.A
             return {"found": len(filas), "filas": [dict(f) for f in filas] if leer else [], "modo": "completa", "desc": "d"}
 
         def seleccionar_todo(driver, found):
@@ -98,7 +98,7 @@ class FlujoAplicar(unittest.TestCase):
                 raise sd.ErrorFila("ERROR: summary", "no apareció el summary")
             if etiqueta == "ida":
                 mover = m.A[m.ignorar:]
-                m.A, m.P = m.A[:m.ignorar], [dict(f, supplier="GUIAPO", code="000000") for f in mover]
+                m.A, m.P = m.A[:m.ignorar], [dict(f, supplier="1EURO1", code="000000") for f in mover]
             else:
                 for f in m.P:
                     f.update(supplier="1ACOS1", code="700GUI")
@@ -143,7 +143,7 @@ class FlujoAplicar(unittest.TestCase):
         self.assertEqual([u[1] for u in self.ws_det.updates][:2], ["IDA", "VUELTA"])
         self.assertEqual([u[1] for u in self.ws_det.updates][-2:], ["VERIFICADO", "VERIFICADO"])
         # la ida ya carga pickup/drop-off/remarks (prueba los selectores antes de mover nada); la vuelta los repone
-        self.assertIn("llenar_modal ida destino=GUIAPO/000000 status=IT pudo=sí", ev)
+        self.assertIn("llenar_modal ida destino=1EURO1/000000 status=IT pudo=sí", ev)
         self.assertIn("llenar_modal vuelta destino=1ACOS1/700GUI status=IT pudo=sí", ev)
         self.assertEqual((self.m.P, len(self.m.A)), ([], 2))
         self.assertIn(("1ACOS1", "700GUI"), {(f["supplier"], f["code"]) for f in self.m.A})
@@ -152,7 +152,7 @@ class FlujoAplicar(unittest.TestCase):
         vacio = {k: "" for k in L.CAMPOS_PANEL}
         estado, _, _ = self.correr(Mundo([fila("R1")], panel=dict(vacio, pickup_hora="00:00", dropoff_hora="00:00")))
         self.assertEqual(estado, "OK")
-        self.assertIn("llenar_modal ida destino=GUIAPO/000000 status=IT pudo=no", self.m.eventos)
+        self.assertIn("llenar_modal ida destino=1EURO1/000000 status=IT pudo=no", self.m.eventos)
         self.assertIn("llenar_modal vuelta destino=1ACOS1/700GUI status=IT pudo=no", self.m.eventos)
 
     def test_found_cero_no_toca_nada(self):
@@ -204,9 +204,25 @@ class FlujoAplicar(unittest.TestCase):
         self.assertEqual(cm.exception.estado, "ERROR: sin provisorio")
         self.assertEqual(self.m.eventos, [])                    # ni siquiera abrió Tourplan
 
+    def test_location_sin_provisorio_aunque_el_service_type_exista_en_otra(self):
+        self.preparar(Mundo([fila("R1")]))
+        with self.assertRaises(sd.ErrorFila) as cm:
+            sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "MDZ", "SUPPLIER": "X", "SERVICE TYPE": "GU", "CODIGO": "C"})
+        self.assertEqual(cm.exception.estado, "ERROR: sin provisorio")
+        self.assertIn("MDZ/GU", cm.exception.detalle)
+        self.assertEqual(self.m.eventos, [])
+
+    def test_tabla_de_provisorios_del_codigo(self):
+        self.assertEqual(len(sd.PROVISORIOS), 116)
+        self.assertEqual(set(sd.PROVISORIOS.values()), {"1EURO1"})
+        for par in (("BUE", "GU"), ("FTE", "CH"), ("USH", "CH"), ("NQN", "EN"), ("RTU", "TR")):
+            self.assertIn(par, sd.PROVISORIOS)
+        for par in (("MDZ", "GU"), ("BUE", "CH"), ("BUE", "CO")):
+            self.assertNotIn(par, sd.PROVISORIOS)
+
     def test_provisorio_en_uso_frena_antes_de_todo(self):
         m = Mundo([fila("R1")])
-        m.P = [fila("RX", supplier="GUIAPO", code="000000")]
+        m.P = [fila("RX", supplier="1EURO1", code="000000")]
         with self.assertRaises(sd.ErrorFila) as cm:
             self.correr(m)
         self.assertEqual(cm.exception.estado, "ERROR: provisorio en uso")
@@ -493,7 +509,7 @@ class LecturaSobreConsultar(unittest.TestCase):
         finally:
             sd.consultar, sd.probar_seleccion_total = guardado
         self.assertEqual(found, 2)
-        self.assertIn("provisorio=BUE/GUIAPO/GU/000000", obs)
+        self.assertIn("provisorio=BUE/1EURO1/GU/000000", obs)
         self.assertIn("seleccion_total=OK(2 via label)", obs)
         self.assertEqual([d["FASE"] for d in detalle], ["LECTURA", "LECTURA"])
         self.assertEqual({d["STATUS_ORIGINAL"] for d in detalle}, {"IT", "OT"})

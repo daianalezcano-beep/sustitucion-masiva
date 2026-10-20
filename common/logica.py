@@ -125,20 +125,21 @@ def deduplicar_input(filas):
     return unicas, repetidas
 
 
-# Provisorios: viven en el código (decisión de la usuaria). Location y Service Type son los de la fila
-# de entrada, el código siempre es 000000 y el proveedor depende del Service Type.
+# Provisorios: viven en el código (decisión de la usuaria). Hay uno por Location + Service Type, siempre con el
+# código 000000; `tabla` es {(LOCATION, SERVICE TYPE): proveedor}. Un par que no esté en la tabla no tiene provisorio.
 CODIGO_PROVISORIO = "000000"
 
 
-def provisorio_para(service_type, tabla):
-    """Proveedor del provisorio para ese Service Type según la tabla fija del código, o None."""
-    return tabla.get(_n(service_type))
+def provisorio_para(location, service_type, tabla):
+    """Proveedor del provisorio de esa Location + Service Type según la tabla fija del código, o None."""
+    return tabla.get((_n(location), _n(service_type)))
 
 
-def service_types_sin_provisorio(filas, tabla):
-    """Service Types del input que no tienen proveedor de provisorio definido."""
-    return sorted({_n(f.get("SERVICE TYPE")) for f in filas
-                   if _n(f.get("SERVICE TYPE")) and _n(f.get("SERVICE TYPE")) not in tabla})
+def combinaciones_sin_provisorio(filas, tabla):
+    """'LOCATION/SERVICE TYPE' del input que no tienen provisorio definido en el código."""
+    return sorted({f"{_n(f.get('LOCATION'))}/{_n(f.get('SERVICE TYPE'))}" for f in filas
+                   if _n(f.get("LOCATION")) and _n(f.get("SERVICE TYPE"))
+                   and (_n(f.get("LOCATION")), _n(f.get("SERVICE TYPE"))) not in tabla})
 
 
 # ── Results ──────────────────────────────────────────────────────────────────
