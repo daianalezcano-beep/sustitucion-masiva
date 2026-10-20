@@ -119,11 +119,12 @@ python scripts\substitute_doble\substitute_doble.py
 
 ## Pendientes anotados
 
-- **Riesgo conocido (2026-10-20):** en el ambiente de **test** (actualizado hace poco a la última versión de Tourplan), la sustitución con
-  Retain Sell Price tildado **no retiene la venta**: Retail y Agent quedan en 0,00 (reproducido a mano, sin el script; en producción la venta
-  se mantiene). El script no lee precios, así que no lo detecta. Mientras tanto: validar costo y venta solo en producción con casos controlados,
-  consultar a Tourplan si producción recibirá esa versión, y priorizar un control automático (Product Analysis antes/después: el costo puede
-  cambiar, la venta no; si cambia, detener la corrida).
+- **Riesgo abierto (2026-10-20): la venta.** En el ambiente de **test** (actualizado hace poco a la última versión de Tourplan) la corrida dejó
+  Retail y Agent en 0,00 en 6 reservas que antes tenían venta (p. ej. 99,30), con Retain Sell Price tildado en ida y vuelta. En **producción** no
+  está validado que la venta se retenga con una venta distinta de cero: la reserva de prueba usada (EAFT249858) tiene Retail/Agent en 0,00, así
+  que no sirve para comprobarlo. Pendiente: prueba controlada en producción con una reserva con venta real, mirando la venta en cada paso
+  (ida y vuelta, a mano), antes de aplicar sobre reservas reales. El script no lee precios, así que no detecta este problema; hace falta un
+  control automático (Product Analysis antes/después: el costo puede cambiar, la venta no; si cambia, detener la corrida).
 - **Provisorios:** el listado ya está en el código (116 combinaciones Location + Service Type bajo `1EURO1`). Si se crea uno nuevo en
   Tourplan hay que agregarlo a `PROVISORIOS_POR_LOCATION`. Se eliminó el provisorio de prueba `BUE/GUIAPO/GU/000000`.
 - Selectores del modal Replacement Service que **no están en las grabaciones**: los campos de pickup/drop-off/Remarks y los Retain
