@@ -24,15 +24,19 @@ except ModuleNotFoundError as e:           # selenium / gspread sin instalar
     FALTA = str(e)
 
 
-def fila(ref, status="IT", supplier="1ACOS1", code="700GUI", pudo="Pickup: 01/Nov/2026 00:00 Dropoff: 01/Nov/2026 00:00"):
-    return {"location": "BUE", "service": "GU", "supplier": supplier, "code": code, "description": "Guía",
-            "booking_name": "n", "booking_ref": ref, "travel_date": "01/Nov/2026", "date": "01/Nov/2026",
-            "status": status, "pudo_raw": pudo, "pickup_fecha_hora": "01/Nov/2026 00:00", "pickup_texto": "",
-            "dropoff_fecha_hora": "01/Nov/2026 00:00", "dropoff_texto": ""}
-
-
-PANEL = {"pickup_fecha": "01/Nov/2026", "pickup_hora": "09:30", "pickup_texto": "Hotel Sheraton",
-         "dropoff_fecha": "01/Nov/2026", "dropoff_hora": "00:00", "dropoff_texto": "", "remarks": "Silla de ruedas"}
+def fila(ref, status="IT", supplier="1ACOS1", code="700GUI", sin_pudo=False, remarks="Silla de ruedas", pickup_texto="Hotel Sheraton"):
+    """Fila de Results. Por defecto trae pickup 09:30 + texto + Remarks (como la celda PU/DO real); sin_pudo=True los vacía."""
+    if sin_pudo:
+        pickup_hora, pickup_texto, remarks = "00:00", "", ""
+    else:
+        pickup_hora = "09:30"
+    f = {"location": "BUE", "service": "GU", "supplier": supplier, "code": code, "description": "Guía",
+         "booking_name": "n", "booking_ref": ref, "travel_date": "01/Nov/2026", "date": "01/Nov/2026",
+         "status": status, "pickup_fecha_hora": f"01/Nov/2026 {pickup_hora}", "pickup_texto": pickup_texto,
+         "dropoff_fecha_hora": "01/Nov/2026 00:00", "dropoff_texto": "", "remarks": remarks}
+    f["pudo_raw"] = (f"Pickup: {f['pickup_fecha_hora']} {pickup_texto} Dropoff: {f['dropoff_fecha_hora']} "
+                     f"Remarks: {remarks}").replace("  ", " ")
+    return f
 
 
 class HojaDetalle:
@@ -53,14 +57,14 @@ class HojaDetalle:
 class Mundo:
     """Tourplan simulado."""
 
-    def __init__(self, filas, ignorar=0, panel=None, falla_en=None, cancela_en=None, vuelta_cambia_estado=False,
-                 vuelta_deja_una_en_P=False):
+    def __init__(self, filas, ignorar=0, falla_en=None, cancela_en=None, vuelta_cambia_estado=False,
+                 vuelta_deja_una_en_P=False, vuelta_borra_pickup=False):
         self.A, self.P = [dict(f) for f in filas], []
         self.ignorar, self.falla_en, self.cancela_en = ignorar, falla_en, cancela_en
         self.vuelta_cambia_estado = vuelta_cambia_estado
         self.vuelta_deja_una_en_P = vuelta_deja_una_en_P
-        self.panel = panel if panel is not None else PANEL
-        self.eventos, self.modal = [], None
+        self.vuelta_borra_pickup = vuelta_borra_pickup
+        self.eventos, self.modal, self.filtro = [], None, None
 
 
 @unittest.skipIf(sd is None, "falta una dependencia para importar el script")
@@ -71,10 +75,15 @@ class FlujoAplicar(unittest.TestCase):
         self.ctx = {"corrida": "c1", "desde": datetime(2026, 11, 1), "hasta": datetime(2049, 12, 31),
                     "ws_det": self.ws_det, "cols_det": list(sd.COLS_DET), "provisorios_ok": set()}
         m = mundo
+        sd.PUDO_SERVICE_TYPES = {"GU"}
 
-        def consultar(driver, ctx, loc, stype, sup, cod, d, h, leer=True, marca=None):
-            m.eventos.append(f"consultar {'P' if sup == '1EURO1' else 'A'}")
-            filas = m.P if sup == "1EURO1" else m.A
+        def consultar(driver, ctx, loc, stype, sup, cod, d, h, leer=True, marca=None, service_status=None):
+            m.eventos.append(f"consultar {'P' if sup == '1EURO1' else 'A'}" + (f" solo {service_status[0]}" if service_status else ""))
+            m.filtro = None
+            if service_status:
+                codigos = [c for c, n in sd.SERVICE_STATUS.items() if n == service_status[0]]
+                m.filtro = codigos[service_status[1]]
+            filas = m.P if sup == "1EURO1" else [f for f in m.A if m.filtro is None or f["status"] == m.filtro]
             return {"found": len(filas), "filas": [dict(f) for f in filas] if leer else [], "modo": "completa", "desc": "d"}
 
         def seleccionar_todo(driver, found):
@@ -97,25 +106,25 @@ class FlujoAplicar(unittest.TestCase):
             if m.falla_en == etiqueta:
                 raise sd.ErrorFila("ERROR: summary", "no apareció el summary")
             if etiqueta == "ida":
-                mover = m.A[m.ignorar:]
-                m.A, m.P = m.A[:m.ignorar], [dict(f, supplier="1EURO1", code="000000") for f in mover]
+                visibles = [f for f in m.A if m.filtro is None or f["status"] == m.filtro]
+                mover = visibles[m.ignorar:]
+                m.A = [f for f in m.A if not any(f is x for x in mover)]
+                m.P = m.P + [dict(f, supplier="1EURO1", code="000000") for f in mover]
             else:
                 for f in m.P:
                     f.update(supplier="1ACOS1", code="700GUI")
                     if m.vuelta_cambia_estado:
                         f["status"] = "OT"
+                    if m.vuelta_borra_pickup:
+                        f.update(pickup_texto="", pudo_raw=f["pudo_raw"].replace("Hotel Sheraton ", ""))
                 if m.vuelta_deja_una_en_P:
                     m.A, m.P = m.A + m.P[:-1], m.P[-1:]
                 else:
                     m.A, m.P = m.A + m.P, []
             return f"summary {etiqueta}"
 
-        def leer_panel(driver, filas):
-            m.eventos.append("leer_panel")
-            return [dict(m.panel, _ref=f["booking_ref"]) for f in filas]
-
         sd.consultar, sd.seleccionar_todo, sd.abrir_modal_reemplazo = consultar, seleccionar_todo, abrir_modal
-        sd.llenar_modal, sd.confirmar, sd.ok_modal_y_summary, sd.leer_panel_filas = llenar_modal, confirmar, ok_summary, leer_panel
+        sd.llenar_modal, sd.confirmar, sd.ok_modal_y_summary = llenar_modal, confirmar, ok_summary
         sd.jc = lambda d, e: m.eventos.append("EXIT del modal")
         sd.dialog_repl = lambda d: type("D", (), {"find_element": lambda self, *a: None})()
 
@@ -132,7 +141,7 @@ class FlujoAplicar(unittest.TestCase):
         ev = self.m.eventos
         # la guarda del provisorio va primero y una sola vez; la foto inicial lee el panel antes de la ida
         self.assertEqual(ev[0], "consultar P")
-        self.assertLess(ev.index("leer_panel"), ev.index("OK ida"))
+        self.assertNotIn("leer_panel", ev)           # el pickup/drop-off sale de la celda PU/DO del listado, sin tocar el panel
         # UNA sola confirmación por combinación (antes de la ida; la vuelta va sola) y el detalle se escribe ANTES del OK de la ida
         self.assertEqual(ev.count("confirmar"), 1)
         self.assertLess(ev.index("confirmar"), ev.index("OK ida"))
@@ -149,8 +158,7 @@ class FlujoAplicar(unittest.TestCase):
         self.assertIn(("1ACOS1", "700GUI"), {(f["supplier"], f["code"]) for f in self.m.A})
 
     def test_sin_datos_de_pickup_no_se_repone(self):
-        vacio = {k: "" for k in L.CAMPOS_PANEL}
-        estado, _, _ = self.correr(Mundo([fila("R1")], panel=dict(vacio, pickup_hora="00:00", dropoff_hora="00:00")))
+        estado, _, _ = self.correr(Mundo([fila("R1", sin_pudo=True)]))
         self.assertEqual(estado, "OK")
         self.assertIn("llenar_modal ida destino=1EURO1/000000 status=IT pudo=no", self.m.eventos)
         self.assertIn("llenar_modal vuelta destino=1ACOS1/700GUI status=IT pudo=no", self.m.eventos)
@@ -175,27 +183,78 @@ class FlujoAplicar(unittest.TestCase):
         self.assertNotIn("OK vuelta", self.m.eventos)           # sin nada en P no hay vuelta
         self.assertEqual(self.ws_det.updates[-1][1], "NO_SUSTITUIDA")
 
+    def test_sin_tope_de_reservas(self):
+        estado, obs, found = self.correr(Mundo([fila(f"R{i}") for i in range(60)]))
+        self.assertEqual((estado, found), ("OK", 60))
+        self.assertEqual((self.m.P, len(self.m.A)), ([], 60))
+        self.assertEqual(self.m.eventos.count("OK ida"), 1)
+
+    def test_varios_estados_se_procesan_de_a_uno_con_el_filtro(self):
+        m = Mundo([fila("R1", "IT"), fila("R2", "OT"), fila("R3", "IT"), fila("R4", "OT"), fila("R5", "OK")])
+        estado, obs, found = self.correr(m)
+        self.assertEqual((estado, found), ("OK", 5))
+        ev = m.eventos
+        self.assertEqual(ev.count("OK ida"), 3)
+        self.assertEqual(ev.count("OK vuelta"), 3)
+        self.assertEqual(ev.count("confirmar"), 1)                         # una sola confirmación por combinación
+        self.assertLess(ev.index("consultar A solo Initial"), ev.index("OK ida"))
+        modales = [e for e in ev if e.startswith("llenar_modal ida")]
+        self.assertEqual(sorted(modales), sorted(f"llenar_modal ida destino=1EURO1/000000 status={st} pudo=sí" for st in ("IT", "OK", "OT")))
+        self.assertEqual((m.P, len(m.A)), ([], 5))
+        self.assertIn("(IT 2, OK 1, OT 2)", obs)
+
+    def test_estado_cc_y_lc_comparten_texto_en_el_filtro(self):
+        m = Mundo([fila("R1", "LC"), fila("R2", "LC")])
+        estado, _, _ = self.correr(m)
+        self.assertEqual(estado, "OK")
+        self.assertEqual(m.eventos.count("OK ida"), 1)
+
     def test_rechazos_previos_no_tocan_nada(self):
         casos = [
-            ([fila("R1", "IT"), fila("R2", "OT")], "único estado"),                 # dos estados
-            ([fila(f"R{i}") for i in range(sd.PANEL_MAX + 1)], "TOURPLAN_PANEL_MAX"),  # demasiadas reservas
+            ([fila("R1", "XX")], "ERROR: status desconocido"),                                  # estado fuera del glosario
+            ([fila("R1", "")], "ERROR: status desconocido"),                                    # Unassigned
+            ([fila("R1"), fila("R2", remarks="otro")], "ERROR: no soportado en esta fase"),    # pickup/drop-off distintos
         ]
-        for filas, texto in casos:
+        for filas, estado_esperado in casos:
             with self.assertRaises(sd.ErrorFila) as cm:
                 self.correr(Mundo(filas))
-            self.assertEqual(cm.exception.estado, "ERROR: no soportado en esta fase")
-            self.assertIn(texto, cm.exception.detalle)
+            self.assertEqual(cm.exception.estado, estado_esperado)
             self.assertNotIn("OK ida", self.m.eventos)
             self.assertEqual(self.ws_det.filas, [])
 
-    def test_paneles_distintos_se_rechazan_antes_de_la_ida(self):
-        m = Mundo([fila("R1"), fila("R2")])
-        self.preparar(m)
-        sd.leer_panel_filas = lambda d, filas: [dict(PANEL, _ref="R1"), dict(PANEL, _ref="R2", remarks="otro")]
+    def test_pickup_en_un_service_type_no_habilitado_se_rechaza(self):
+        self.preparar(Mundo([fila("R1")]))
+        sd.PUDO_SERVICE_TYPES = set()
         with self.assertRaises(sd.ErrorFila) as cm:
             sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
-        self.assertIn("distintos datos de pickup", cm.exception.detalle)
-        self.assertNotIn("OK ida", m.eventos)
+        self.assertEqual(cm.exception.estado, "ERROR: pickup/dropoff inesperado")
+        self.assertNotIn("OK ida", self.m.eventos)
+
+    def test_service_type_no_habilitado_sin_datos_no_analiza_ni_repone(self):
+        self.preparar(Mundo([fila("R1", sin_pudo=True), fila("R2", sin_pudo=True)]))
+        sd.PUDO_SERVICE_TYPES = set()
+        estado, _, _ = sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
+        self.assertEqual(estado, "OK")
+        self.assertIn("llenar_modal vuelta destino=1ACOS1/700GUI status=IT pudo=no", self.m.eventos)
+
+    def test_un_estado_posterior_que_falla_informa_los_ya_hechos(self):
+        m = Mundo([fila("R1", "IT"), fila("R2", "OT")])
+        self.preparar(m)
+        original = sd.foto_del_grupo
+
+        def falla_en_ot(driver, ctx, loc, stype, sup, cod, d, h, status, filas_g):
+            if status == "OT":
+                raise sd.ErrorFila("ERROR: filtro de estado", "no coincide")
+            return original(driver, ctx, loc, stype, sup, cod, d, h, status, filas_g)
+        sd.foto_del_grupo = falla_en_ot
+        try:
+            with self.assertRaises(sd.ErrorFila) as cm:
+                sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
+        finally:
+            sd.foto_del_grupo = original
+        self.assertEqual(cm.exception.estado, "ERROR: filtro de estado")
+        self.assertIn("ya procesados sin problema: ['IT']", cm.exception.detalle)
+        self.assertEqual(m.P, [])
 
     def test_service_type_sin_provisorio(self):
         self.preparar(Mundo([fila("R1")]))
@@ -227,7 +286,6 @@ class FlujoAplicar(unittest.TestCase):
             self.correr(m)
         self.assertEqual(cm.exception.estado, "ERROR: provisorio en uso")
         self.assertNotIn("OK ida", m.eventos)
-        self.assertNotIn("leer_panel", m.eventos)
 
     def test_guarda_del_provisorio_una_vez_por_corrida(self):
         self.correr(Mundo([fila("R1")]))
@@ -285,14 +343,9 @@ class FlujoAplicar(unittest.TestCase):
         self.assertEqual(self.ws_det.updates[-1][1], "REVISION_MANUAL")
 
     def test_pickup_que_no_se_repone_se_detecta_en_la_verificacion_final(self):
-        m = Mundo([fila("R1")])
-        self.preparar(m)
-        llamadas = []
-        sd.leer_panel_filas = lambda d, filas: (llamadas.append(1), [dict(PANEL if len(llamadas) == 1 else dict(PANEL, pickup_texto=""),
-                                                                           _ref="R1")])[1]
-        estado, obs, _ = sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
+        estado, obs, _ = self.correr(Mundo([fila("R1")], vuelta_borra_pickup=True))
         self.assertEqual(estado, "ERROR_REVISAR")
-        self.assertIn("panel distinto", obs)
+        self.assertIn("columnas distintas", obs)
 
 
 @unittest.skipIf(sd is None, "falta una dependencia para importar el script")
@@ -541,5 +594,7 @@ class CeldaPudo(unittest.TestCase):
         f["remarks"] = "texto prueba"
         d = sd.armar_detalle(ctx, "BUE", "1ACOS1", "GU", "700GUI", [f], "LECTURA", "LEIDA")
         self.assertEqual(d[0]["REMARKS"], "texto prueba")
-        d = sd.armar_detalle(ctx, "BUE", "1ACOS1", "GU", "700GUI", [fila("R2")], "LECTURA", "LEIDA")   # sin la clave
+        sin_clave = fila("R2")
+        del sin_clave["remarks"]
+        d = sd.armar_detalle(ctx, "BUE", "1ACOS1", "GU", "700GUI", [sin_clave], "LECTURA", "LEIDA")   # sin la clave
         self.assertEqual(d[0]["REMARKS"], "")

@@ -17,10 +17,10 @@ Modos (TOURPLAN_MODO):
   - lectura (default, Fase 1): por cada fila PENDIENTE abre Substitute Service, aplica el
     filtro, lee Results y escribe lo leído en SUBSTITUTE_DETALLE. NUNCA hace click en ningún OK.
   - aplicar (Fase 2): hace el ida y vuelta COMPLETO sobre cada combinación y MODIFICA reservas
-    en producción. Por ahora soporta combinaciones con un único estado de servicio y hasta
-    TOURPLAN_PANEL_MAX reservas con los mismos datos de pickup/drop-off/Remarks (ver
-    procesar_fila_aplicar). Con TOURPLAN_CONFIRMAR_OK=1 (default) se detiene antes de cada OK
-    y espera que se escriba SI en la consola.
+    en producción, sin tope de reservas. Si la combinación tiene varios estados de servicio se procesa un
+    estado por vez, usando el filtro Service Status de Tourplan. Pickup/drop-off/Remarks solo se analizan
+    y reponen en los Service Types de TOURPLAN_PUDO_SERVICE_TYPES (ver procesar_fila_aplicar). Con
+    TOURPLAN_CONFIRMAR_OK=1 (default) se detiene una vez por combinación, antes de la ida.
 
 Provisorios: viven en el código (PROVISORIOS: Location + Service Type, proveedor 1EURO1). Location y Service Type son los de la
 fila de entrada, el código siempre es 000000 y el proveedor depende del Service Type. Si el
@@ -30,8 +30,8 @@ Reglas de negocio y de seguridad:
   - Una fila del input = una combinación; se procesa completa y secuencialmente.
   - Filas repetidas del input (misma combinación) -> DUPLICADO, sin procesar.
   - Filtro de estados: se destilda SOLO Booking Status "CX - Cancelled" (decisión
-    de la usuaria; Service Status queda como viene, todo tildado). Se verifica
-    que quedó destildado ese ítem y ningún otro.
+    de la usuaria). Service Status queda todo tildado, salvo en modo aplicar con varios estados: ahí cada
+    grupo se filtra con solo su estado. Se verifica que quedó destildado ese ítem y ningún otro.
   - Fechas: "Desde" obligatoria (la ingresa el usuario en cada corrida), "Hasta"
     por defecto 31/12/49 (= 2049). Se escriben con año de 2 dígitos (el campo
     rechaza DD/MM/YYYY) y se verifica el valor normalizado que guarda el input.
@@ -51,13 +51,15 @@ Config (variables de entorno, TOURPLAN_*): ver sección CONFIG.
 """
 
 # ── CAMBIOS ──
+# v0.3 (2026-10-20): sin tope de reservas; un estado de servicio por vez con el filtro Service Status; pickup/drop-off
+#   solo en los Service Types habilitados (leídos de la celda PU/DO del listado, ya no del panel derecho).
 # v0.2 (2026-10-19): modo aplicar (Fase 2); provisorios en el código (se elimina la hoja PROVISORIOS).
 # v0.1 (2026-10-19): primera versión, solo modo lectura. SIN CORRER contra
 #   Tourplan ni contra el Sheet; la lógica pura (common/logica.py) sí tiene
 #   pruebas por simulación (tests/test_logica.py).
 
-VERSION = "0.2"
-VERSION_FECHA = "2026-10-19"
+VERSION = "0.3"
+VERSION_FECHA = "2026-10-20"
 
 import json
 import os
@@ -99,7 +101,9 @@ ESCRIBIR_DETALLE = os.environ.get("TOURPLAN_ESCRIBIR_DETALLE", "1").strip() in (
 CONFIRMAR_OK = os.environ.get("TOURPLAN_CONFIRMAR_OK", "1").strip() in ("1", "true", "True")
 # Si la app define esta carpeta, la confirmación se hace por archivos (botones en la app); si no, escribiendo SI en la consola.
 CONFIRM_DIR = os.environ.get("TOURPLAN_CONFIRM_DIR", "").strip()
-PANEL_MAX = int(os.environ.get("TOURPLAN_PANEL_MAX", "5"))
+# Service Types (separados por coma) en los que SÍ se analizan y reponen pickup/drop-off/Remarks. En los demás se
+# asume que no corresponden: si igual aparecen datos en el listado, la combinación se rechaza sin tocar nada.
+PUDO_SERVICE_TYPES = {t.strip().upper() for t in os.environ.get("TOURPLAN_PUDO_SERVICE_TYPES", "").split(",") if t.strip()}
 CONFIRMO_SIN_PENDIENTES = os.environ.get("TOURPLAN_CONFIRMO_SIN_PENDIENTES", "").strip().upper()
 # Reusar la pantalla Substitute Service entre búsquedas (volver a la solapa Filter) ahorra ~15 s por
 # consulta. Si la pantalla no está como se espera, se abre de cero. TOURPLAN_REUSAR_PANTALLA=0 la desactiva.
@@ -168,6 +172,16 @@ PROVISORIOS_POR_LOCATION = {
 PROVISORIOS = {(loc, st): SUPPLIER_PROVISORIO for loc, sts in PROVISORIOS_POR_LOCATION.items() for st in sts.split()}
 # La validación previa de que el provisorio está libre mira todo el historial, no solo el rango de la corrida.
 GUARDA_DESDE = datetime(2020, 1, 1)
+
+# Glosario de Service Status: el listado (Results) muestra el código y el filtro el texto. CC y LC se llaman igual
+# en el filtro ("Cancellation Charge"): se distinguen mirando qué código devuelve Results (ver foto_del_grupo).
+SERVICE_STATUS = {
+    "CC": "Cancellation Charge", "CE": "Cancelled Ext Source", "CH": "Cancel Hyperg c/IVA", "CK": "Complimentary Latam",
+    "CO": "Complimentary", "CQ": "Cancellation On Req", "CX": "Cancelled", "DQ": "Not Confirmed-DataRQ",
+    "FS": "Free Sale Confirmed", "IP": "Pending Issue", "IT": "Initial", "LC": "Cancellation Charge", "LK": "Confirmed LK",
+    "LX": "Cancelled-No Charge", "MQ": "Modification On Req", "OK": "Confirmed OK", "OP": "Optional", "OT": "OK Tráfico",
+    "PA": "Partially Alloc Conf", "RQ": "On Request", "RT": "Reconfirmado Trafico", "WL": "Waiting List",
+}
 
 
 class ErrorFila(Exception):
@@ -367,6 +381,48 @@ JS_CLICK_ESTADO = """
     el.click();
     return true;
 """
+
+
+JS_CLICK_ESTADOS_IDX = """
+    var grupo = arguments[1].toLowerCase(), idxs = arguments[2];
+    var lg = Array.from(arguments[0].querySelectorAll('div.legend')).find(function(l){
+        return (l.innerText || '').trim().toLowerCase() === grupo; });
+    if (!lg) return false;
+    var lis = Array.from(lg.parentElement.querySelectorAll('li.list-row'));
+    idxs.forEach(function(i){ var el = lis[i].querySelector('i') || lis[i].querySelector('input'); el.click(); });
+    return true;
+"""
+
+
+def fijar_service_status(driver, nombre=None, nth=0):
+    """Filtro Service Status. Sin `nombre`: todos los ítems tildados. Con `nombre`: solo ese ítem tildado (`nth`:
+    cuál, entre los ítems de igual texto). Se tilda/destilda ítem por ítem (no se usa 'All'), se relee y se
+    verifica; 'All' lo maneja Tourplan y no se toca."""
+    for _ in range(3):
+        items = driver.execute_script(JS_ESTADOS, dialog_subs(driver), "service status")
+        if not items:
+            raise ErrorFila("ERROR: filtro de estado", "No encontré el grupo Service Status")
+        deseado, vistos = [], 0
+        for e in items:
+            if e["texto"].lower() == "all":
+                deseado.append(None)
+            elif nombre is None:
+                deseado.append(True)
+            elif e["texto"].lower() == nombre.lower():
+                deseado.append(vistos == nth)
+                vistos += 1
+            else:
+                deseado.append(False)
+        if nombre is not None and nth >= vistos:
+            raise ErrorFila("ERROR: filtro de estado", f"Service Status no tiene el ítem '{nombre}' (n.º {nth + 1}); "
+                            f"hay: {[e['texto'] for e in items]}")
+        cambiar = [i for i, (e, d) in enumerate(zip(items, deseado)) if d is not None and e["tilda"] != d]
+        if not cambiar:
+            return
+        driver.execute_script(JS_CLICK_ESTADOS_IDX, dialog_subs(driver), "service status", cambiar)
+        pausa(1)
+    raise ErrorFila("ERROR: filtro de estado", f"No pude dejar el filtro Service Status en "
+                    f"{'todos' if nombre is None else repr(nombre)} (quedó distinto tras 3 intentos)")
 
 
 def destildar_booking_status(driver, texto=BOOKING_STATUS_EXCLUIR):
@@ -602,57 +658,6 @@ def probar_seleccion_total(driver, found):
     return usado[0]
 
 
-# ── Panel derecho por fila ───────────────────────────────────────────────────
-
-JS_PANEL = """
-    function v(host, sel) {
-        var h = document.querySelector('#resultsTab .serviceline-details #' + host);
-        var e = h ? h.querySelector(sel) : null;
-        return e ? (e.value || '') : null;
-    }
-    return {pickup_fecha: v('pickupDate', 'input.tphidden'), pickup_hora: v('pickupTime', 'input'),
-            pickup_texto: v('pickupRemarks', 'input, textarea'),
-            dropoff_fecha: v('dropoffDate', 'input.tphidden'), dropoff_hora: v('dropoffTime', 'input'),
-            dropoff_texto: v('dropoffRemarks', 'input, textarea'), remarks: v('remarks', 'input, textarea')};
-"""
-
-JS_CHECK_FILA = """
-    var tb = document.querySelector('#resultsTab tp-grid table');
-    var tr = Array.from(tb.querySelectorAll('tbody > tr')).filter(function(r){
-        return r.querySelector(':scope > td.tpcol-optioncode'); })[arguments[0]];
-    if (!tr) return null;
-    var td = tr.querySelector(':scope > td.tpcol-checkbox');
-    return td ? (td.querySelector('label') || td.querySelector('i') || td.querySelector('input') || td) : null;
-"""
-
-
-def leer_panel_filas(driver, filas):
-    """Por cada fila (en el orden en que se leyeron, todas en el DOM): la selecciona, lee el panel derecho
-    (pickup/drop-off fecha, hora y texto, y Remarks de la línea) y la deselecciona verificando Selected.
-    Solo para combinaciones chicas (todas las filas renderizadas)."""
-    paneles = []
-    for i, f in enumerate(filas):
-        objetivo = driver.execute_script(JS_CHECK_FILA, i)
-        if objetivo is None:
-            raise ErrorFila("ERROR: panel", f"No encontré el checkbox de la fila {i + 1} de Results")
-        jc(driver, objetivo)
-        pausa(1.2)
-        sel = leer_contadores(driver)[1]
-        if sel != 1:
-            raise ErrorFila("ERROR: panel", f"Al seleccionar la fila {i + 1} quedó Selected={sel} (esperaba 1)")
-        panel = driver.execute_script(JS_PANEL)
-        if any(v is None for v in panel.values()):
-            raise ErrorFila("ERROR: panel", f"El panel derecho no tiene todos los campos esperados: {panel}")
-        panel["_ref"] = f["booking_ref"]
-        paneles.append(panel)
-        jc(driver, objetivo)
-        pausa(1.2)
-        sel = leer_contadores(driver)[1]
-        if sel != 0:
-            raise ErrorFila("ERROR: panel", f"No pude deseleccionar la fila {i + 1}: Selected={sel}")
-    return paneles
-
-
 # ── Fila del input ───────────────────────────────────────────────────────────
 
 def campos_fila(row):
@@ -663,9 +668,10 @@ def campos_fila(row):
     return loc, sup, stype, cod
 
 
-def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, marca=None):
+def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, marca=None, service_status=None):
     """Abre Substitute Service desde cero, aplica el filtro (con todas sus verificaciones), busca y,
     si leer=True, lee Results por contenido. Deja la pantalla en la pestaña Results.
+    `service_status`: None (todos los estados) o (texto del filtro, n.º de ítem de ese texto).
     Devuelve {found, filas, modo, desc}."""
     marca = marca or (lambda nombre: None)
     preparar_pantalla(driver, ctx)
@@ -677,9 +683,11 @@ def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, 
     desde = escribir_fecha(driver, "serviceDateFrom", desde_dt)
     hasta = escribir_fecha(driver, "serviceDateTo", hasta_dt)
     tildados = destildar_booking_status(driver)
+    fijar_service_status(driver, *(service_status or (None, 0)))
     marca("filtro")
     print(f"    Filtro OK: {ubic} | {srv} | {prv} | {cod} ({desc}) | {L.fmt_tp(desde)}–{L.fmt_tp(hasta)} "
-          f"| Booking Status sin '{BOOKING_STATUS_EXCLUIR}' ({len(tildados)} tildados)")
+          f"| Booking Status sin '{BOOKING_STATUS_EXCLUIR}' ({len(tildados)} tildados) "
+          f"| Service Status: {'todos' if not service_status else 'solo ' + service_status[0]}")
 
     buscar(driver)
     found, selected = esperar_resultados(driver)
@@ -1015,62 +1023,52 @@ def _fase_rango(ctx, rango, fase):
         actualizar_columna_rango(ctx["ws_det"], ctx["cols_det"], "FASE", rango[0], rango[1], fase)
 
 
-def procesar_fila_aplicar(driver, ctx, row):
-    """Ida y vuelta COMPLETO de UNA combinación (original A -> provisorio P -> A). Devuelve
-    (estado, observaciones, found). Cualquier fallo después del OK de la ida termina en ERROR_COLGADAS
-    (las reservas pueden haber quedado en P; su detalle está en SUBSTITUTE_DETALLE).
+def pudo_de_fila(f):
+    """Pickup/drop-off/Remarks de una fila de Results, en el formato de L.CAMPOS_PANEL (la celda PU/DO del
+    listado trae lo mismo que el panel derecho, sin tener que seleccionar cada reserva)."""
+    return {"pickup_fecha": L.fecha_de(f["pickup_fecha_hora"]), "pickup_hora": L.hora_de(f["pickup_fecha_hora"]),
+            "pickup_texto": f["pickup_texto"], "dropoff_fecha": L.fecha_de(f["dropoff_fecha_hora"]),
+            "dropoff_hora": L.hora_de(f["dropoff_fecha_hora"]), "dropoff_texto": f["dropoff_texto"],
+            "remarks": f.get("remarks", "")}
 
-    Límites de esta fase (se rechazan ANTES de tocar nada): un único estado de servicio, entre 1 y
-    PANEL_MAX reservas, y todas con los mismos datos de pickup/drop-off/Remarks."""
-    loc, sup, stype, cod = campos_fila(row)
-    psup, pcod = provisorio_de_fila(loc, stype)
-    desde, hasta = ctx["desde"], ctx["hasta"]
 
-    verificar_provisorio_libre(driver, ctx, loc, stype, psup, pcod)
+def foto_del_grupo(driver, ctx, loc, stype, sup, cod, desde, hasta, status, filas_g):
+    """Vuelve a consultar A con el filtro Service Status = solo `status` y comprueba que devuelve EXACTAMENTE las
+    reservas de ese estado de la foto inicial. Si el texto del filtro está repetido (CC y LC se llaman igual) prueba
+    cada ítem hasta que coincida. Devuelve (consulta, (texto_del_filtro, n.º de ítem))."""
+    nombre = SERVICE_STATUS[status]
+    intentos = 2 if list(SERVICE_STATUS.values()).count(nombre) > 1 else 1
+    for nth in range(intentos):
+        r = consultar(driver, ctx, loc, stype, sup, cod, desde, hasta, service_status=(nombre, nth))
+        faltan, sobran = L.diferencia_multiconjunto(filas_g, r["filas"])
+        if not faltan and not sobran:
+            return r, (nombre, nth)
+    raise ErrorFila("ERROR: filtro de estado", f"Con el filtro Service Status '{nombre}' Results no devuelve las "
+                    f"{len(filas_g)} reserva(s) {status} de la foto inicial (faltan {faltan[:2]} | sobran {sobran[:2]})")
 
-    # 1) Foto inicial de A (11 columnas por reserva + panel derecho de cada una)
-    r0 = consultar(driver, ctx, loc, stype, sup, cod, desde, hasta)
-    found0, filas0 = r0["found"], r0["filas"]
-    if found0 == 0:
-        return "OK", f"[APLICAR {ahora()}] Found=0: no hay reservas para sustituir en el rango", 0
-    estados = sorted({f["status"] for f in filas0})
-    if len(estados) != 1:
-        raise ErrorFila("ERROR: no soportado en esta fase", f"Hay {len(estados)} estados de servicio distintos {estados}; "
-                        "esta fase solo procesa combinaciones con un único estado (no se tocó nada)")
-    status0 = estados[0]
-    if found0 > PANEL_MAX or r0["modo"] != "completa":
-        raise ErrorFila("ERROR: no soportado en esta fase", f"{found0} reservas (modo de lectura {r0['modo']}); esta fase procesa "
-                        f"hasta TOURPLAN_PANEL_MAX={PANEL_MAX} (no se tocó nada)")
-    paneles0 = leer_panel_filas(driver, filas0)
-    if not L.paneles_homogeneos(paneles0):
-        raise ErrorFila("ERROR: no soportado en esta fase", "Las reservas tienen distintos datos de pickup/drop-off/Remarks; "
-                        "esta fase necesita que sean iguales para reponerlos en un solo modal (no se tocó nada)")
-    pudo0 = {k: paneles0[0][k] for k in L.CAMPOS_PANEL}
-    reponer = L.necesita_pudo(pudo0)
-    print(f"    Foto inicial: {found0} reserva(s), estado {status0}, pickup/drop-off a reponer: {'sí' if reponer else 'no'}")
-    if any(p["pickup_fecha"] and p["pickup_fecha"] != f["date"] for p, f in zip(paneles0, filas0)):
-        print("    ⚠ El pickup/drop-off original no cae en la fecha del servicio: el modal no permite fecha, "
-              "la verificación final lo va a marcar para revisión manual.")
 
+def procesar_grupo(driver, ctx, loc, sup, stype, cod, psup, pcod, status, filas_g, pudos, pudo0, reponer, filtro_ss,
+                   desde, hasta, plan):
+    """Ida y vuelta de UN grupo (todas las reservas de A con el mismo estado de servicio; con un solo estado, todas).
+    `plan`: texto de la confirmación (None = no pedir). Devuelve un dict con lo ocurrido; después del OK de la ida
+    cualquier fallo es ERROR_COLGADAS."""
+    found0 = len(filas_g)
     # 2) IDA: A -> P (selecciona todo, modal, confirmación, detalle ANTES del OK, OK, summary)
-    usado = seleccionar_todo(driver, found0)
+    seleccionar_todo(driver, found0)
     abrir_modal_reemplazo(driver, found0)
     # El pickup/drop-off también se carga en la ida: así los selectores de esos campos se prueban ANTES de
     # mover nada (si fallan, no hay nada que recuperar) y el provisorio conserva los datos como respaldo.
-    llenar_modal(driver, loc, stype, psup, pcod, status0, pudo0 if reponer else None, "ida")
-    if not confirmar(f"{loc}/{sup}/{stype}/{cod}: {found0} reserva(s) (estado {status0}). IDA: mover al provisorio "
-                     f"{loc}/{psup}/{stype}/{pcod}{' (con pickup/drop-off/remarks)' if reponer else ''}. Después la VUELTA "
-                     f"(devolverlas al original) se hace sola y se verifica contra la foto inicial. Se hace click en el OK de la ida."):
+    llenar_modal(driver, loc, stype, psup, pcod, status, pudo0 if reponer else None, "ida")
+    if plan and not confirmar(plan):
         jc(driver, dialog_repl(driver).find_element(By.CSS_SELECTOR, "tp-button.cancel > button"))
         raise ErrorFila("ERROR: cancelado", "El usuario canceló antes del OK de la ida. No se movió nada.")
     n, ini, fin = agregar_filas_batch(ctx["ws_det"], ctx["cols_det"],
-                                      armar_detalle(ctx, loc, sup, stype, cod, filas0, "IDA_EN_CURSO", "", paneles0),
+                                      armar_detalle(ctx, loc, sup, stype, cod, filas_g, "IDA_EN_CURSO", "", pudos),
                                       devolver_rango=True)
     rango = (ini, fin)
-    ida_ejecutada = True   # a partir de acá, cualquier fallo = ERROR_COLGADAS
     obs = []
     try:
-        obs.append("summary ida: " + ok_modal_y_summary(driver, "ida"))
+        obs.append(f"[{status}] summary ida: " + ok_modal_y_summary(driver, "ida"))
         _fase_rango(ctx, rango, "IDA")
 
         # 3) Verificar P: lo que se movió es un subconjunto exacto de lo que se leyó en A
@@ -1078,28 +1076,26 @@ def procesar_fila_aplicar(driver, ctx, row):
         found1 = r1["found"]
         if found1 > found0:
             raise ErrorFila("ERROR: provisorio", f"P tiene {found1} reservas y se movieron como máximo {found0}")
-        _, sobran = L.diferencia_multiconjunto(filas0, r1["filas"], L.CAMPOS_RESERVA)
+        _, sobran = L.diferencia_multiconjunto(filas_g, r1["filas"], L.CAMPOS_RESERVA)
         if sobran:
             raise ErrorFila("ERROR: provisorio", f"P tiene reservas que no estaban en A: {sobran[:3]}")
-        no_movidas = L.diferencia_multiconjunto(filas0, r1["filas"], L.CAMPOS_RESERVA)[0]
+        no_movidas = L.diferencia_multiconjunto(filas_g, r1["filas"], L.CAMPOS_RESERVA)[0]
         print(f"    P tras la ida: Found={found1} de {found0} (no sustituidas por Tourplan: {len(no_movidas)})")
         if found1 == 0:
             _fase_rango(ctx, rango, "NO_SUSTITUIDA")
-            return "ERROR_REVISAR", (f"[APLICAR {ahora()}] Tourplan no sustituyó ninguna de las {found0} reserva(s) "
-                                      f"(siguen en el original). {' | '.join(obs)}"), found0
+            return {"sin_sustituir": True, "obs": obs, "found": found0}
 
-        # 4) VUELTA: P -> A (selecciona todo lo que hay en P, modal con el original, estado y pickup/drop-off)
-        usado = seleccionar_todo(driver, found1)
+        # 4) VUELTA: P -> A (selecciona todo lo que hay en P, modal con el original, estado y pickup/drop-off).
+        # No pide confirmación: ya está confirmada la combinación y frenar acá dejaría reservas en el provisorio.
+        seleccionar_todo(driver, found1)
         abrir_modal_reemplazo(driver, found1)
-        llenar_modal(driver, loc, stype, sup, cod, status0, pudo0 if reponer else None, "vuelta")
-        # La vuelta no pide confirmación: ya está confirmada la combinación y frenar acá dejaría reservas en el provisorio.
-        obs.append("summary vuelta: " + ok_modal_y_summary(driver, "vuelta"))
+        llenar_modal(driver, loc, stype, sup, cod, status, pudo0 if reponer else None, "vuelta")
+        obs.append(f"[{status}] summary vuelta: " + ok_modal_y_summary(driver, "vuelta"))
         _fase_rango(ctx, rango, "VUELTA")
 
-        # 5) Verificación final contra la foto inicial
-        r2 = consultar(driver, ctx, loc, stype, sup, cod, desde, hasta)
-        faltan, sobran = L.diferencia_multiconjunto(filas0, r2["filas"])
-        paneles2 = leer_panel_filas(driver, r2["filas"]) if r2["found"] == found0 and r2["modo"] == "completa" else None
+        # 5) Verificación final contra la foto inicial del grupo (las columnas incluyen la celda PU/DO completa)
+        r2 = consultar(driver, ctx, loc, stype, sup, cod, desde, hasta, service_status=filtro_ss)
+        faltan, sobran = L.diferencia_multiconjunto(filas_g, r2["filas"])
         if r2["found"] == found0 and not faltan and not sobran:
             # Todas las reservas de la foto están de vuelta en A y P estaba vacío antes de la ida: P quedó vacío.
             print("    P no se vuelve a consultar: el original quedó idéntico a la foto, así que P está vacío")
@@ -1109,15 +1105,9 @@ def procesar_fila_aplicar(driver, ctx, row):
                 raise ErrorFila("ERROR: provisorio", f"El provisorio quedó con {r3['found']} reserva(s) tras la vuelta")
         diferencias = []
         if r2["found"] != found0:
-            diferencias.append(f"el original tiene Found={r2['found']} y antes {found0}")
+            diferencias.append(f"[{status}] el original tiene Found={r2['found']} y antes {found0}")
         if faltan or sobran:
-            diferencias.append(f"columnas distintas: antes-y-no-ahora {faltan[:2]} | ahora-y-no-antes {sobran[:2]}")
-        if paneles2 is None:
-            diferencias.append("no se pudo releer el panel derecho para comparar pickup/drop-off/Remarks")
-        else:
-            otros = [p for p in paneles2 if tuple(p[k] for k in L.CAMPOS_PANEL) != tuple(pudo0[k] for k in L.CAMPOS_PANEL)]
-            if otros:
-                diferencias.append(f"panel distinto al original en {len(otros)} reserva(s): ahora {otros[0]} / antes {pudo0}")
+            diferencias.append(f"[{status}] columnas distintas: antes-y-no-ahora {faltan[:2]} | ahora-y-no-antes {sobran[:2]}")
     except ErrorFila as e:
         raise ErrorFila("ERROR_COLGADAS", f"Falló después del OK de la ida ({e.estado}: {e.detalle}). Las reservas pueden haber "
                         f"quedado en el provisorio {loc}/{psup}/{stype}/{pcod}; ver SUBSTITUTE_DETALLE (fase {{IDA_EN_CURSO, IDA, VUELTA}}).")
@@ -1128,7 +1118,7 @@ def procesar_fila_aplicar(driver, ctx, row):
     # 6) Cierre: FASE final por reserva (las que Tourplan no sustituyó siguen en A: NO_SUSTITUIDA)
     base = "VERIFICADO" if not diferencias else "REVISION_MANUAL"
     sin_asignar = list(no_movidas)
-    for i, f in enumerate(filas0):
+    for i, f in enumerate(filas_g):
         firma = tuple(f[c] for c in L.CAMPOS_RESERVA)
         if firma in sin_asignar:
             sin_asignar.remove(firma)
@@ -1137,7 +1127,89 @@ def procesar_fila_aplicar(driver, ctx, row):
             fase = base
         if rango[0]:
             actualizar_columna_rango(ctx["ws_det"], ctx["cols_det"], "FASE", rango[0] + i, rango[0] + i, fase)
-    resumen = (f"[APLICAR {ahora()}] {found0} reserva(s) en A; sustituidas {found1}; no sustituidas {len(no_movidas)}; "
+    return {"sin_sustituir": False, "obs": obs, "found": found0, "movidas": found1, "no_movidas": len(no_movidas),
+            "diferencias": diferencias}
+
+
+def procesar_fila_aplicar(driver, ctx, row):
+    """Ida y vuelta COMPLETO de UNA combinación (original A -> provisorio P -> A). Devuelve
+    (estado, observaciones, found). Cualquier fallo después del OK de la ida termina en ERROR_COLGADAS
+    (las reservas pueden haber quedado en P; su detalle está en SUBSTITUTE_DETALLE).
+
+    Sin tope de reservas. Si A tiene varios estados de servicio, se procesa un estado por vez usando el filtro
+    Service Status (cada grupo: ida y vuelta completas). Pickup/drop-off/Remarks se leen de la celda PU/DO del
+    listado: en los Service Types de PUDO_SERVICE_TYPES se reponen en la vuelta (deben ser iguales dentro de cada
+    grupo); en los demás se asume que no corresponden y, si aparecen, la combinación se rechaza. Todos los
+    rechazos ocurren ANTES de tocar nada."""
+    loc, sup, stype, cod = campos_fila(row)
+    psup, pcod = provisorio_de_fila(loc, stype)
+    desde, hasta = ctx["desde"], ctx["hasta"]
+
+    verificar_provisorio_libre(driver, ctx, loc, stype, psup, pcod)
+
+    # 1) Foto inicial de A (todos los estados; las columnas del listado incluyen la celda PU/DO)
+    r0 = consultar(driver, ctx, loc, stype, sup, cod, desde, hasta)
+    found0, filas0 = r0["found"], r0["filas"]
+    if found0 == 0:
+        return "OK", f"[APLICAR {ahora()}] Found=0: no hay reservas para sustituir en el rango", 0
+    estados = sorted({f["status"] for f in filas0})
+    desconocidos = [e for e in estados if e not in SERVICE_STATUS]
+    if desconocidos:
+        raise ErrorFila("ERROR: status desconocido", f"Estados de servicio sin entrada en el glosario SERVICE_STATUS: "
+                        f"{[e or '(vacío)' for e in desconocidos]} (no se tocó nada)")
+    analiza_pudo = stype in PUDO_SERVICE_TYPES
+    grupos = []
+    for st in estados:
+        filas_g = [f for f in filas0 if f["status"] == st]
+        pudos = [pudo_de_fila(f) for f in filas_g]
+        if analiza_pudo:
+            if not L.paneles_homogeneos(pudos):
+                raise ErrorFila("ERROR: no soportado en esta fase", f"Las reservas en estado {st} tienen distintos datos de "
+                                "pickup/drop-off/Remarks; con un solo modal no se pueden reponer (no se tocó nada)")
+            pudo0 = pudos[0]
+            reponer = L.necesita_pudo(pudo0)
+        else:
+            if any(L.necesita_pudo(p) for p in pudos):
+                raise ErrorFila("ERROR: pickup/dropoff inesperado", f"Hay reservas en estado {st} con datos de pickup/drop-off/"
+                                f"Remarks y el Service Type {stype} no está habilitado para analizarlos "
+                                "(se habilita en la app; no se tocó nada)")
+            pudo0, reponer = None, False
+        if any(p["pickup_fecha"] and p["pickup_fecha"] != f["date"] for p, f in zip(pudos, filas_g)):
+            print(f"    ⚠ [{st}] El pickup/drop-off original no cae en la fecha del servicio: el modal no permite fecha, "
+                  "la verificación final lo va a marcar para revisión manual.")
+        grupos.append({"status": st, "filas": filas_g, "pudos": pudos, "pudo0": pudo0, "reponer": reponer})
+    cuenta = ", ".join(f"{g['status']} {len(g['filas'])}" for g in grupos)
+    print(f"    Foto inicial: {found0} reserva(s) en {len(grupos)} estado(s) de servicio ({cuenta}); "
+          f"pickup/drop-off: {'analizado' if analiza_pudo else 'no corresponde en ' + stype}"
+          + (f"; a reponer en: {[g['status'] for g in grupos if g['reponer']]}" if analiza_pudo else ""))
+
+    plan = (f"{loc}/{sup}/{stype}/{cod}: {found0} reserva(s) en {len(grupos)} estado(s) de servicio ({cuenta}). Por cada estado: "
+            f"IDA: mover al provisorio {loc}/{psup}/{stype}/{pcod}; después la VUELTA (devolverlas al original) se hace sola "
+            f"y se verifica contra la foto inicial. Se hace click en el OK de la ida del primer estado y el resto sigue solo.")
+    hechos, resultados = [], []
+    for i, g in enumerate(grupos):
+        try:
+            filtro_ss = None
+            if len(grupos) > 1:
+                _, filtro_ss = foto_del_grupo(driver, ctx, loc, stype, sup, cod, desde, hasta, g["status"], g["filas"])
+            res = procesar_grupo(driver, ctx, loc, sup, stype, cod, psup, pcod, g["status"], g["filas"], g["pudos"], g["pudo0"],
+                                 g["reponer"], filtro_ss, desde, hasta, plan if i == 0 else None)
+        except ErrorFila as e:
+            if e.estado == "ERROR_COLGADAS" or not hechos:
+                raise
+            raise ErrorFila(e.estado, f"{e.detalle} (estados ya procesados sin problema: {hechos})")
+        if res["sin_sustituir"]:
+            return "ERROR_REVISAR", (f"[APLICAR {ahora()}] Tourplan no sustituyó ninguna de las {res['found']} reserva(s) en estado "
+                                      f"{g['status']} (siguen en el original). Estados ya procesados: {hechos or 'ninguno'}. "
+                                      f"{' | '.join(res['obs'])}"), found0
+        hechos.append(g["status"])
+        resultados.append(res)
+
+    diferencias = [d for r in resultados for d in r["diferencias"]]
+    movidas = sum(r["movidas"] for r in resultados)
+    no_movidas = sum(r["no_movidas"] for r in resultados)
+    obs = [o for r in resultados for o in r["obs"]]
+    resumen = (f"[APLICAR {ahora()}] {found0} reserva(s) en A ({cuenta}); sustituidas {movidas}; no sustituidas {no_movidas}; "
                f"{' | '.join(obs)}")
     if diferencias:
         return "ERROR_REVISAR", resumen + " | DIFERENCIAS: " + "; ".join(diferencias), found0

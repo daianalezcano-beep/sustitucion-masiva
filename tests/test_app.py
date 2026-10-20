@@ -185,10 +185,12 @@ class App(unittest.TestCase):
         self.assertTrue(any("000000" in c.value for c in at.caption))
         at.checkbox(key="confirmo").check().run()
         self.assertFalse(self.boton(at, "Ejecutar").disabled)
+        at.text_input(key="pudo_types").set_value(" co, tr;ch ").run()
         with mock.patch("subprocess.Popen", ProcFalso):
             self.boton(at, "Ejecutar").click().run()
         env = ProcFalso.llamada[1]["env"]
         self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_CONFIRMO_SIN_PENDIENTES"], env["TOURPLAN_CONFIRMAR_OK"]), ("aplicar", "SI", "1"))
+        self.assertEqual(env["TOURPLAN_PUDO_SERVICE_TYPES"], "CO,TR,CH")        # vacío por defecto: en ningún Service Type
 
     def test_fechas_invalidas_bloquean(self):
         self.configurar()

@@ -90,8 +90,14 @@ python scripts\substitute_doble\substitute_doble.py
 - `TOURPLAN_CONFIRMO_SIN_PENDIENTES=SI` es obligatorio: confirma que se revisó a mano que no quedan `000000` pendientes. Además el script
   no arranca si `SUBSTITUTE_DETALLE` tiene reservas en `FASE` `IDA_EN_CURSO` / `IDA` / `VUELTA` (una corrida anterior cortada).
 - Sin la app, `TOURPLAN_CONFIRMAR_OK=1` pide escribir `SI` en la consola; con la app (`TOURPLAN_CONFIRM_DIR`) la confirmación es por botones.
-- Límites de esta fase (se rechazan antes de tocar nada): un único estado de servicio por combinación, hasta `TOURPLAN_PANEL_MAX`
-  (5) reservas y todas con los mismos datos de pickup/drop-off/remarks.
+- **Sin tope de reservas.** Si la combinación tiene varios estados de servicio (columna STATUS de Results, con códigos como IT, OK,
+  OT), se procesa **un estado por vez** usando el filtro Service Status de Tourplan (solo ese estado tildado) y "Select all". El
+  glosario código → texto del filtro está en `SERVICE_STATUS` (`substitute_doble.py`); `CC` y `LC` se llaman igual en el filtro y se
+  distinguen mirando qué código devuelve Results. Un estado fuera del glosario (o vacío) rechaza la combinación antes de tocar nada.
+- **Pickup / drop-off / Remarks:** se leen de la celda PU/DO del listado (ya no del panel derecho). Solo se analizan y reponen en los
+  Service Types que se indican en la app (`TOURPLAN_PUDO_SERVICE_TYPES`, ej. `CO,TR`). En los demás se asume que no corresponden:
+  si igual hay datos, la combinación se rechaza sin tocar nada. En los habilitados, dentro de cada estado los datos deben ser iguales
+  (un solo modal los repone); si no, se rechaza (pendiente de resolver; depende de comprobar si Tourplan los conserva solo).
 - `Retain Sell Price` y `Retain Voucher Text` no se tocan: antes de cada OK se verifica (por el texto del label) que sigan tildados.
 
 ## Hoja de ruta (orden de trabajo)
