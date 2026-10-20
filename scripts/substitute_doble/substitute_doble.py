@@ -179,6 +179,9 @@ GUARDA_DESDE = datetime(2020, 1, 1)
 
 # Glosario de Service Status: el listado (Results) muestra el código y el filtro el texto. CC y LC se llaman igual
 # en el filtro ("Cancellation Charge"): se distinguen mirando qué código devuelve Results (ver foto_del_grupo).
+# Service Status que se dejan destildados en el filtro y no se procesan: Tourplan no permite sustituir un servicio
+# cancelado (CX): rechaza la operación con "Service status () does not exist". Texto del ítem en el filtro (coincidencia exacta).
+SERVICE_STATUS_EXCLUIDOS = ("Cancelled",)
 SERVICE_STATUS = {
     "CC": "Cancellation Charge", "CE": "Cancelled Ext Source", "CH": "Cancel Hyperg c/IVA", "CK": "Complimentary Latam",
     "CO": "Complimentary", "CQ": "Cancellation On Req", "CX": "Cancelled", "DQ": "Not Confirmed-DataRQ",
@@ -438,9 +441,9 @@ JS_CLICK_ESTADOS_IDX = """
 
 
 def fijar_service_status(driver, nombre=None, nth=0):
-    """Filtro Service Status. Sin `nombre`: todos los ítems tildados. Con `nombre`: solo ese ítem tildado (`nth`:
-    cuál, entre los ítems de igual texto). Se tilda/destilda ítem por ítem (no se usa 'All'), se relee y se
-    verifica; 'All' lo maneja Tourplan y no se toca."""
+    """Filtro Service Status. Sin `nombre`: todos los ítems tildados salvo los de SERVICE_STATUS_EXCLUIDOS. Con `nombre`:
+    solo ese ítem tildado (`nth`: cuál, entre los ítems de igual texto). Se tilda/destilda ítem por ítem (no se usa 'All'),
+    se relee y se verifica; 'All' lo maneja Tourplan y no se toca."""
     for _ in range(3):
         items = driver.execute_script(JS_ESTADOS, dialog_subs(driver), "service status")
         if not items:
@@ -450,7 +453,7 @@ def fijar_service_status(driver, nombre=None, nth=0):
             if e["texto"].lower() == "all":
                 deseado.append(None)
             elif nombre is None:
-                deseado.append(True)
+                deseado.append(e["texto"].lower() not in [x.lower() for x in SERVICE_STATUS_EXCLUIDOS])
             elif e["texto"].lower() == nombre.lower():
                 deseado.append(vistos == nth)
                 vistos += 1
@@ -783,7 +786,7 @@ def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, 
     marca("filtro")
     print(f"    Filtro OK: {ubic} | {srv} | {prv} | {cod} ({desc}) | {L.fmt_tp(desde)}–{L.fmt_tp(hasta)} "
           f"| Booking Status sin '{excluido}' ({len(tildados)} tildados) "
-          f"| Service Status: {'todos' if not service_status else 'solo ' + service_status[0]}"
+          f"| Service Status: {'todos menos ' + ', '.join(SERVICE_STATUS_EXCLUIDOS) if not service_status else 'solo ' + service_status[0]}"
           + (f" | sin recargar: {', '.join(mantenidos)}" if mantenidos else ""))
 
     token = buscar(driver)
@@ -1311,7 +1314,7 @@ def procesar_fila_aplicar(driver, ctx, row):
             f"IDA: mover al provisorio {loc}/{psup}/{stype}/{pcod}; después la VUELTA (devolverlas al original) se hace sola "
             f"y se verifica contra la foto inicial. Se hace click en el OK de la ida del primer estado y el resto sigue solo.")
     ctx["provisorios_ok"].discard((loc, stype))      # este provisorio se va a usar: antes de la próxima combinación que lo use se revisa de nuevo
-    hechos, resultados, no_sustituidos = [], [], []
+    hechos, resultados, no_sustituidos, por_estado = [], [], [], []
     for i, g in enumerate(grupos):
         try:
             filtro_ss = None
@@ -1328,9 +1331,11 @@ def procesar_fila_aplicar(driver, ctx, row):
             # sigue con los demás estados; la combinación termina marcada para revisar.
             print(f"    ⚠ Tourplan no sustituyó ninguna de las {res['found']} reserva(s) en estado {g['status']}; se sigue con los demás estados")
             no_sustituidos.append(f"{g['status']} ({res['found']}): {' | '.join(res['obs'])}")
+            por_estado.append(f"{g['status']} NO sustituido ({res['found']})")
             continue
         hechos.append(g["status"])
         resultados.append(res)
+        por_estado.append(f"{g['status']} sustituido ({res['movidas']} de {res['found']})")
 
     diferencias = [d for r in resultados for d in r["diferencias"]]
     movidas = sum(r["movidas"] for r in resultados)
@@ -1338,7 +1343,7 @@ def procesar_fila_aplicar(driver, ctx, row):
     obs = [o for r in resultados for o in r["obs"]]
     sin_mover = no_movidas + sum(len(g["filas"]) for g in grupos if g["status"] not in hechos)
     resumen = (f"[APLICAR {ahora()}] {found0} reserva(s) en A ({cuenta}); sustituidas {movidas}; no sustituidas {sin_mover}; "
-               f"{' | '.join(obs)}")
+               f"POR ESTADO: {', '.join(por_estado)}; {' | '.join(obs)}")
     if no_sustituidos:
         resumen += " | NO SUSTITUIDAS por Tourplan (siguen en el original): " + "; ".join(no_sustituidos)
     if diferencias:

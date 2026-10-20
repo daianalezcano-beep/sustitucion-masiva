@@ -132,11 +132,11 @@ python scripts\substitute_doble\substitute_doble.py
 - **Service Types en los que analizar pickup / drop-off / Remarks (pendiente de rediseño):** hoy es un campo de texto en la app (vacío = ninguno)
   y, si en un Service Type no habilitado aparecen esos datos, la combinación se rechaza. Hay que darle una vuelta (cómo se define, dónde se guarda,
   qué default conviene y qué hacer cuando los datos difieren entre reservas) antes de usarlo en volumen. Anotado, sin cambios por ahora.
-- **Estado de servicio CX (cancelado) en la ida:** en producción (2026-10-20) Tourplan rechazó la sustitución de una reserva con Service Status `CX`
-  (`Error (Service status () does not exist.)` en el Summary, aunque el modal mostraba 'CX - Cancelled'): la reserva quedó en el original, sin cambios, y
-  el provisorio vacío. Con el cambio de hoy esa combinación termina en `ERROR: no sustituida` (no frena la corrida) y se sigue con los demás estados.
-  Pendiente decidir qué hacer con los servicios cancelados: excluirlos de la corrida (se pueden destildar en el filtro Service Status) o dejarlos
-  informados como no sustituidos.
+- **Servicios cancelados (CX) excluidos:** Tourplan no deja sustituir un servicio con Service Status `CX` (en producción, 2026-10-20, rechazó con
+  `Error (Service status () does not exist.)`; la reserva quedó sin cambios y el provisorio vacío). Por eso el script deja destildado en el filtro
+  Service Status el ítem `Cancelled` (`SERVICE_STATUS_EXCLUIDOS`) y esas reservas no entran en la corrida (la consola dice `Service Status: todos
+  menos Cancelled`). Si aun así un estado no se sustituye, la combinación termina en `ERROR: no sustituida` (no frena la corrida), se sigue con los
+  demás estados y OBSERVACIONES indica cuáles sí y cuáles no (`POR ESTADO: IT sustituido (2 de 2), OT NO sustituido (1)`).
 - **Provisorios:** el listado ya está en el código (116 combinaciones Location + Service Type bajo `1EURO1`). Si se crea uno nuevo en
   Tourplan hay que agregarlo a `PROVISORIOS_POR_LOCATION`. Se eliminó el provisorio de prueba `BUE/GUIAPO/GU/000000`.
 - Selectores del modal Replacement Service que **no están en las grabaciones**: los campos de pickup/drop-off/Remarks y los Retain

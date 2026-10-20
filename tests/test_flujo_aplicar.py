@@ -203,6 +203,7 @@ class FlujoAplicar(unittest.TestCase):
         self.assertEqual(sorted(f["booking_ref"] for f in m.A), ["R1", "R2", "R3"])
         self.assertIn("sustituidas 2; no sustituidas 1", obs)
         self.assertIn("CX (1)", obs)
+        self.assertIn("POR ESTADO: CX NO sustituido (1), OT sustituido (2 de 2)", obs)       # indica cuáles sí y cuáles no
         self.assertEqual(m.eventos.count("OK vuelta"), 1)       # el estado OT sí hizo ida y vuelta
         self.assertEqual(m.eventos.count("confirmar"), 1)
 

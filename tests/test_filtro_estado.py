@@ -57,7 +57,14 @@ class FiltroServiceStatus(unittest.TestCase):
         sd.fijar_service_status(self.d, "Initial")
         self.assertEqual([t for t in self.tildados() if not t.endswith("(no)") and t != "All"], ["Initial"])
         sd.fijar_service_status(self.d)
-        self.assertFalse([t for t in self.tildados() if t.endswith("(no)")])
+        self.assertEqual([t for t in self.tildados() if t.endswith("(no)")], ["Cancelled(no)"])    # todos menos los excluidos (CX)
+
+    def test_sin_estado_deja_destildado_solo_cancelled_exacto(self):
+        sd.fijar_service_status(self.d, "Initial")
+        sd.fijar_service_status(self.d)
+        estados = dict((e["texto"], e["tilda"]) for e in self.d.execute_script(sd.JS_ESTADOS, "__DOC__", "service status"))
+        self.assertFalse(estados["Cancelled"])
+        self.assertTrue(all(v for k, v in estados.items() if k not in ("Cancelled", "All")))   # "Cancel Hyperg c/IVA" y los demás, tildados
 
     def test_texto_repetido_se_distingue_por_n(self):
         sd.fijar_service_status(self.d, "Cancellation Charge", 1)
