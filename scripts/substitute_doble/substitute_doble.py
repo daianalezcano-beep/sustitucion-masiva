@@ -95,6 +95,9 @@ FECHA_HASTA = os.environ.get("TOURPLAN_FECHA_HASTA", "31/12/49")    # 31/12/49 =
 FILA = os.environ.get("TOURPLAN_FILA", "").strip()                  # solo esa fila del Sheet
 PROBAR_PANEL = os.environ.get("TOURPLAN_PROBAR_PANEL", "1").strip() in ("1", "true", "True")
 PROBAR_SELECCION = os.environ.get("TOURPLAN_PROBAR_SELECCION", "1").strip() in ("1", "true", "True")
+# Modo lectura: por cada estado de servicio que aparece en Results, prueba el filtro Service Status (solo ese estado) y
+# comprueba que devuelve exactamente esas reservas. No modifica nada. TOURPLAN_PROBAR_FILTRO_ESTADO=0 lo desactiva.
+PROBAR_FILTRO_ESTADO = os.environ.get("TOURPLAN_PROBAR_FILTRO_ESTADO", "1").strip() in ("1", "true", "True")
 ESCRIBIR_DETALLE = os.environ.get("TOURPLAN_ESCRIBIR_DETALLE", "1").strip() in ("1", "true", "True")
 CONFIRMAR_OK = os.environ.get("TOURPLAN_CONFIRMAR_OK", "1").strip() in ("1", "true", "True")
 # Si la app define esta carpeta, la confirmación se hace por archivos (botones en la app); si no, escribiendo SI en la consola.
@@ -772,12 +775,29 @@ def procesar_fila_lectura(driver, ctx, row):
         print(f"    Select all verificado: Selected=Found={found} (click en {via}) y deselección OK")
         marca("seleccion")
 
+    filtro_estado = ""
+    if PROBAR_FILTRO_ESTADO and found > 0:
+        pruebas = {}
+        for st in sorted({f["status"] for f in filas}):
+            filas_g = [f for f in filas if f["status"] == st]
+            if st not in SERVICE_STATUS:
+                pruebas[st or "(vacío)"] = "SIN GLOSARIO"
+                continue
+            try:
+                foto_del_grupo(driver, ctx, loc, stype, sup, cod, ctx["desde"], ctx["hasta"], st, filas_g)
+                pruebas[st] = f"OK({len(filas_g)})"
+            except ErrorFila as e:
+                pruebas[st] = f"FALLA({e.detalle[:150]})"
+        filtro_estado = f"filtro_estado={pruebas}; "
+        print(f"    Filtro Service Status probado por estado: {pruebas}")
+        marca("filtro_estado")
+
     dup = L.analizar_duplicados(filas)
     estados = L.conteo_estados(filas)
     obs = (f"[LECTURA {ahora()}] Found={found}; estados={estados}; "
            f"claves repetidas={dup['claves']} ({dup['filas']} filas; {dup['difieren_estado']} con estado distinto, "
            f"{dup['difieren_pudo']} con PU/DO distinto); provisorio={texto_prov}; "
-           f"{sel_total}lectura={modo_lectura}; t={marcas}")
+           f"{sel_total}{filtro_estado}lectura={modo_lectura}; t={marcas}")
     return obs, armar_detalle(ctx, loc, sup, stype, cod, filas, "LECTURA", "LEIDA"), found, marcas
 
 

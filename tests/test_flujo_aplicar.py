@@ -553,7 +553,11 @@ class LecturaSobreConsultar(unittest.TestCase):
     def test_observaciones_y_detalle(self):
         guardado = (sd.consultar, sd.probar_seleccion_total)
         filas = [fila("R1"), fila("R2", status="OT")]
-        sd.consultar = lambda *a, **k: {"found": 2, "filas": filas, "modo": "completa", "desc": "d"}
+        def consultar(driver, ctx, loc, stype, sup, cod, d, h, leer=True, marca=None, service_status=None):
+            codigos = [c for c, n in sd.SERVICE_STATUS.items() if service_status and n == service_status[0]]
+            visibles = [f for f in filas if not service_status or f["status"] in codigos]
+            return {"found": len(visibles), "filas": visibles, "modo": "completa", "desc": "d"}
+        sd.consultar = consultar
         sd.probar_seleccion_total = lambda d, f: "label"
         try:
             ctx = {"corrida": "c1", "desde": datetime(2026, 11, 1), "hasta": datetime(2049, 12, 31), "panel_pendiente": False}
@@ -564,6 +568,7 @@ class LecturaSobreConsultar(unittest.TestCase):
         self.assertEqual(found, 2)
         self.assertIn("provisorio=BUE/1EURO1/GU/000000", obs)
         self.assertIn("seleccion_total=OK(2 via label)", obs)
+        self.assertIn("filtro_estado={'IT': 'OK(1)', 'OT': 'OK(1)'}", obs)       # cada estado probado con su filtro
         self.assertEqual([d["FASE"] for d in detalle], ["LECTURA", "LECTURA"])
         self.assertEqual({d["STATUS_ORIGINAL"] for d in detalle}, {"IT", "OT"})
         self.assertTrue(all(set(d) <= set(sd.COLS_DET) for d in detalle))   # solo columnas que existen en la hoja

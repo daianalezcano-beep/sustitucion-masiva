@@ -58,6 +58,9 @@ python scripts\substitute_doble\substitute_doble.py
 - `TOURPLAN_FILA=<n>` procesa solo esa fila del Sheet (para la primera prueba); sin ella, todas las PENDIENTE.
 - En modo lectura el script también prueba "Select all" con el checkbox del encabezado de Results: verifica `Selected == Found` y
   deselecciona, sin tocar nunca OK (`TOURPLAN_PROBAR_SELECCION=0` lo desactiva). Es la misma mecánica que usará el modo aplicar.
+- En modo lectura también se **prueba el filtro Service Status**: por cada estado que aparece en Results (sin filtrar) vuelve a consultar con solo ese
+  estado tildado y comprueba que devuelve exactamente esas reservas; el resultado queda en OBSERVACIONES (`filtro_estado={...}`).
+  No modifica nada (`TOURPLAN_PROBAR_FILTRO_ESTADO=0` lo desactiva).
 - Hojas del Sheet: `SUBSTITUTE` (entrada) y `SUBSTITUTE_DETALLE` (salida). Los provisorios **no** están en el Sheet: viven en el código
   (`PROVISORIOS_POR_LOCATION` en `substitute_doble.py`): hay uno por Location + Service Type (116 combinaciones, solo options
   Z*NO USAR*), siempre con proveedor `1EURO1` y código `000000`. Si la Location + Service Type de una fila no está en esa tabla, la fila
