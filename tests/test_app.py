@@ -275,8 +275,9 @@ class App(unittest.TestCase):
             carpetas.append(base / "diag_ignorada")
             at = self.app()
             self.assertFalse(at.exception)
-            self.assertEqual(at.expander[-1].label, "🕘 Historial de corridas")
-            textos = [m.value for m in at.expander[-1].markdown]
+            historial = next(e for e in at.expander if e.label == "🕘 Historial de corridas")
+            self.assertIn("📊 Comparar reportes antes / después (control de costo y venta)", [e.label for e in at.expander])
+            textos = [m.value for m in historial.markdown]
             self.assertIn("01/01/2099 10:10:10", textos)
             self.assertTrue(any("Duración: 3m 05s" in t for t in textos))
             self.assertTrue(any("sin cierre" in t for t in textos))
