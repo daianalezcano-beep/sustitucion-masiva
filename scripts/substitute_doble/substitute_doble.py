@@ -1109,8 +1109,11 @@ def ok_modal_y_summary(driver, etiqueta):
     ss(driver, f"summary_{etiqueta}", forzar=True)
     print(f"    Summary {etiqueta}: {texto[:300]}")
     jc(driver, dlg.find_element(By.CSS_SELECTOR, "tp-button > button"))
-    esperar(lambda: not _visible(driver, dlg), 6)      # espera activa a que se cierre el Summary
+    t0 = time.time()
+    esperar(lambda: not _visible(driver, dlg), 1)      # espera activa (máx. ~1,5 s) a que se cierre el Summary
+    t1 = time.time()
     esperar_fin_carga(driver, timeout=30)
+    print(f"    (cierre del Summary: {t1 - t0:.1f} s hasta que se cierra + {time.time() - t1:.1f} s de carga)")
     return texto[:600]
 
 
