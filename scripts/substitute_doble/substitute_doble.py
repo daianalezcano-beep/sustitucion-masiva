@@ -262,15 +262,21 @@ def abrir_substitute(driver):
 
 def preparar_pantalla(driver, ctx):
     if REUSAR_PANTALLA and ctx["abierta"]:
+        motivo = ""
         try:
             jc(driver, driver.find_element(By.CSS_SELECTOR, "#tptablabel-filterTab"))
             pausa(1.5)
             dlg = dialog_subs(driver)
             if dlg is not None and dlg.find_elements(By.CSS_SELECTOR, "div.col1 li:nth-of-type(1) input"):
+                print("    Pantalla reutilizada: se vuelve a la solapa Filter sin reabrir Substitute Service")
                 return
-        except Exception:
-            pass
+            motivo = "al volver a Filter no está el campo Location" if dlg is not None else "no se encontró el diálogo Substitute Service"
+        except Exception as e:
+            motivo = f"{type(e).__name__}: {str(e).splitlines()[0][:150] if str(e) else ''}"
+        print(f"    ⚠ No se pudo reutilizar la pantalla ({motivo}): se abre Substitute Service de cero")
         ctx["abierta"] = False
+    elif not REUSAR_PANTALLA:
+        print("    Reutilización de pantalla desactivada (TOURPLAN_REUSAR_PANTALLA=0): se abre de cero")
     abrir_substitute(driver)
     ctx["abierta"] = True
 
