@@ -17,8 +17,8 @@ from common import logica as L
 
 def params(**kw):
     p = {"usuario": "u", "password": "p", "sheet_url": "https://docs.google.com/x", "base_url": "https://t.example/tp",
-         "modo": "lectura", "desde": date(2026, 11, 1), "hasta": date(2049, 12, 31), "max_reservas": 2000, "fila": 0,
-         "confirmo_sin_pendientes": False, "confirmar_ok": True, "panel_max": 5}
+         "modo": "lectura", "desde": date(2026, 11, 1), "hasta": date(2049, 12, 31), "fila": 0,
+         "confirmo_sin_pendientes": False, "confirmar_ok": True, "pudo_service_types": ""}
     p.update(kw)
     return p
 
@@ -33,7 +33,6 @@ class Parametros(unittest.TestCase):
         self.assertTrue(any("anterior" in e for e in E.validar_parametros(params(hasta=date(2026, 10, 1)))))
         self.assertTrue(any("Desde" in e for e in E.validar_parametros(params(desde=None))))
         self.assertTrue(any("2000" in e for e in E.validar_parametros(params(hasta=date(2100, 1, 1)))))
-        self.assertTrue(E.validar_parametros(params(max_reservas=0)))
 
     def test_aplicar_exige_confirmar_que_no_hay_pendientes(self):
         errores = E.validar_parametros(params(modo="aplicar", confirmo_sin_pendientes=False))
@@ -45,11 +44,11 @@ class Parametros(unittest.TestCase):
         self.assertEqual(E.advertencias(params(), hoy=date(2026, 10, 19)), [])
 
     def test_entorno(self):
-        env = E.armar_entorno(params(modo="aplicar", confirmo_sin_pendientes=True, fila=7, panel_max=3), {"PATH": "x"},
+        env = E.armar_entorno(params(modo="aplicar", confirmo_sin_pendientes=True, fila=7, pudo_service_types=" co, tr;ch "), {"PATH": "x"},
                               Path("/repo"), Path("/run"), Path("/repo/salida"), Path("/run/ABORTAR.flag"),
                               "/cfg/credentials.json", "/cfg/token.json")
         self.assertEqual((env["TOURPLAN_FECHA_DESDE"], env["TOURPLAN_FECHA_HASTA"]), ("01/11/26", "31/12/49"))
-        self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_FILA"], env["TOURPLAN_PANEL_MAX"]), ("aplicar", "7", "3"))
+        self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_FILA"], env["TOURPLAN_PUDO_SERVICE_TYPES"]), ("aplicar", "7", "CO,TR,CH"))
         self.assertEqual((env["TOURPLAN_CONFIRMO_SIN_PENDIENTES"], env["TOURPLAN_CONFIRMAR_OK"]), ("SI", "1"))
         self.assertEqual(env["TOURPLAN_CONFIRM_DIR"], str(Path("/run")))
         self.assertEqual(env["PATH"], "x")

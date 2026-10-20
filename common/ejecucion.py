@@ -9,6 +9,7 @@ respuesta. Así no hace falta una consola interactiva.
 """
 
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +32,7 @@ def _como_datetime(d):
 def validar_parametros(p):
     """Lista de problemas que impiden ejecutar (vacía = se puede ejecutar). `p` es un dict con:
     usuario, password, sheet_url, base_url, modo ('lectura'|'aplicar'), desde, hasta (date),
-    max_reservas, fila, confirmo_sin_pendientes."""
+    fila, confirmo_sin_pendientes."""
     errores = []
     for clave, nombre in (("usuario", "el usuario de Tourplan"), ("password", "la contraseña de Tourplan"),
                           ("sheet_url", "la URL del Google Sheet"), ("base_url", "la URL de Tourplan")):
@@ -42,8 +43,6 @@ def validar_parametros(p):
     error_rango = L.validar_rango(_como_datetime(p.get("desde")), _como_datetime(p.get("hasta")))
     if error_rango:
         errores.append(error_rango + ".")
-    if int(p.get("max_reservas") or 0) < 1:
-        errores.append("El tope de reservas tiene que ser al menos 1.")
     if p.get("modo") == "aplicar" and not p.get("confirmo_sin_pendientes"):
         errores.append("Para aplicar tenés que confirmar que revisaste que no hay códigos 000000 pendientes.")
     return errores
@@ -67,9 +66,8 @@ def armar_entorno(p, base_env, repo_root, run_dir, ss_dir, stop_file, credential
         "TOURPLAN_MODO": p["modo"],
         "TOURPLAN_FECHA_DESDE": L.fmt_ddmmyy(_como_datetime(p["desde"])),
         "TOURPLAN_FECHA_HASTA": L.fmt_ddmmyy(_como_datetime(p["hasta"])),
-        "TOURPLAN_MAX_RESERVAS": str(int(p["max_reservas"])),
         "TOURPLAN_FILA": str(int(p["fila"])) if int(p.get("fila") or 0) > 0 else "",
-        "TOURPLAN_PANEL_MAX": str(int(p.get("panel_max") or 5)),
+        "TOURPLAN_PUDO_SERVICE_TYPES": ",".join(t.upper() for t in re.split(r"[,;\s]+", p.get("pudo_service_types") or "") if t),
         "TOURPLAN_CONFIRMO_SIN_PENDIENTES": "SI" if p.get("confirmo_sin_pendientes") else "",
         "TOURPLAN_CONFIRMAR_OK": "1" if p.get("confirmar_ok", True) else "0",
         "TOURPLAN_CONFIRM_DIR": str(run_dir),

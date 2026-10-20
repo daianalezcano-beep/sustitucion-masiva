@@ -152,16 +152,13 @@ def render_parametros(estado):
                                "Aplicar: hace la sustitución real (ida y vuelta) y MODIFICA reservas.")
     modo = MODOS[modo_label]
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     desde = c1.date_input("Servicios desde", value=hoy + timedelta(days=1), min_value=date(2000, 1, 1),
                           max_value=date(2099, 12, 31), format="DD/MM/YYYY", disabled=bloqueado, key="desde",
                           help="Obligatoria: se ingresa en cada corrida.")
     hasta = c2.date_input("Servicios hasta", value=date(2049, 12, 31), min_value=date(2000, 1, 1),
                           max_value=date(2099, 12, 31), format="DD/MM/YYYY", disabled=bloqueado, key="hasta",
                           help="Por defecto 31/12/2049: abarca todos los servicios desde la fecha de inicio.")
-    max_reservas = c3.number_input("Tope de reservas por combinación", min_value=1, value=2000, step=100,
-                                   disabled=bloqueado, key="max_reservas",
-                                   help="Si una combinación tiene más reservas, termina en ERROR sin leer ni tocar nada.")
 
     sheet_url = _sheet_url_guardada()                              # se carga solo en ⚙️ Configuración
     c4, c5 = st.columns([3, 1])
@@ -185,7 +182,7 @@ def render_parametros(estado):
                                         "rechaza sin tocar nada.")
 
     usuario, password = user_config.tp_credenciales_default()
-    return {"modo": modo, "desde": desde, "hasta": hasta, "max_reservas": int(max_reservas), "sheet_url": sheet_url,
+    return {"modo": modo, "desde": desde, "hasta": hasta, "sheet_url": sheet_url,
             "base_url": base_url, "fila": int(fila), "confirmo_sin_pendientes": confirmo, "confirmar_ok": confirmar_ok,
             "pudo_service_types": pudo_types, "usuario": usuario, "password": password}
 
@@ -196,7 +193,6 @@ def lanzar(estado, p):
     SALIDA.mkdir(exist_ok=True)
     env = E.armar_entorno(p, os.environ.copy(), REPO_ROOT, run_dir, SALIDA, stop_file,
                           user_config.CREDENTIALS_PATH, user_config.TOKEN_PATH, headless=user_config.headless_default())
-    env["TOURPLAN_PUDO_SERVICE_TYPES"] = ",".join(t.strip().upper() for t in re.split(r"[,;\s]+", p.get("pudo_service_types") or "") if t.strip())
     proc = subprocess.Popen([sys.executable, str(SCRIPT)], cwd=str(REPO_ROOT), env=env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace", bufsize=1)

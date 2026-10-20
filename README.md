@@ -22,7 +22,7 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
 
 - **Configuración** (una vez por PC; se comparte con la otra app de Tourplan): usuario y contraseña de Tourplan y URL del Sheet (la URL del Sheet se carga solo acá, no en la pantalla principal).
 - **Parámetros:** modo (solo revisar / aplicar), servicios desde (obligatoria; avisa si es anterior a hoy) y hasta (por defecto
-  31/12/2049), tope de reservas por combinación, URL de Tourplan, "solo la fila nº" para probar una combinación.
+  31/12/2049), URL de Tourplan, "solo la fila nº" para probar una combinación.
 - **Modo aplicar:** exige tildar que se revisó a mano que no hay códigos `000000` pendientes. Con "pedir confirmación antes de cada combinación"
   (por defecto) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
   **Continuar / Cancelar** (y la captura del modal). La vuelta se hace sola: frenar entre ida y vuelta dejaría reservas en el provisorio.
@@ -50,7 +50,6 @@ set TOURPLAN_PASSWORD=clave
 set TOURPLAN_SHEET_URL=https://docs.google.com/spreadsheets/d/<ID>/edit
 set TOURPLAN_FECHA_DESDE=20/10/26
 set TOURPLAN_FECHA_HASTA=31/12/49
-set TOURPLAN_MAX_RESERVAS=2000
 set TOURPLAN_FILA=2
 python scripts\substitute_doble\substitute_doble.py
 ```

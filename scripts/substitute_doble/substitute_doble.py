@@ -17,7 +17,7 @@ Modos (TOURPLAN_MODO):
   - lectura (default, Fase 1): por cada fila PENDIENTE abre Substitute Service, aplica el
     filtro, lee Results y escribe lo leído en SUBSTITUTE_DETALLE. NUNCA hace click en ningún OK.
   - aplicar (Fase 2): hace el ida y vuelta COMPLETO sobre cada combinación y MODIFICA reservas
-    en producción, sin tope de reservas. Si la combinación tiene varios estados de servicio se procesa un
+    en producción, sin tope de reservas (no existe ningún límite por cantidad). Si la combinación tiene varios estados de servicio se procesa un
     estado por vez, usando el filtro Service Status de Tourplan. Pickup/drop-off/Remarks solo se analizan
     y reponen en los Service Types de TOURPLAN_PUDO_SERVICE_TYPES (ver procesar_fila_aplicar). Con
     TOURPLAN_CONFIRMAR_OK=1 (default) se detiene una vez por combinación, antes de la ida.
@@ -37,7 +37,6 @@ Reglas de negocio y de seguridad:
     rechaza DD/MM/YYYY) y se verifica el valor normalizado que guarda el input.
   - Código exacto: en Location/Service/Supplier nunca se acepta el ítem
     resaltado; se elige la fila de código idéntico y se lee el valor final.
-  - Tope MAX_RESERVAS: si Found lo supera, la fila termina en ERROR sin leer.
   - Lectura de Results por contenido (nunca por índice ni WebElements
     cacheados); el total leído debe coincidir con Found o la fila es ERROR.
   - Modo lectura: prueba además "Select all" con el checkbox del encabezado (verifica
@@ -93,7 +92,6 @@ CREDENTIALS_PATH = os.environ.get("TOURPLAN_CREDENTIALS_PATH", _CRED_DEFAULT)
 TOKEN_PATH = os.environ.get("TOURPLAN_TOKEN_PATH", _TOKEN_DEFAULT)
 FECHA_DESDE = os.environ.get("TOURPLAN_FECHA_DESDE", "")            # obligatoria
 FECHA_HASTA = os.environ.get("TOURPLAN_FECHA_HASTA", "31/12/49")    # 31/12/49 = 2049
-MAX_RESERVAS = int(os.environ.get("TOURPLAN_MAX_RESERVAS", "2000"))
 FILA = os.environ.get("TOURPLAN_FILA", "").strip()                  # solo esa fila del Sheet
 PROBAR_PANEL = os.environ.get("TOURPLAN_PROBAR_PANEL", "1").strip() in ("1", "true", "True")
 PROBAR_SELECCION = os.environ.get("TOURPLAN_PROBAR_SELECCION", "1").strip() in ("1", "true", "True")
@@ -696,8 +694,6 @@ def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, 
     if selected not in (0, None):
         raise ErrorFila("ERROR: Results", f"Selected={selected} antes de seleccionar nada: alguien tocó la ventana de "
                         "Chrome mientras corría el script (no hay que clickear nada a mano)")
-    if found > MAX_RESERVAS:
-        raise ErrorFila("ERROR: supera el tope", f"Found={found} > MAX_RESERVAS={MAX_RESERVAS}; no se leyó nada")
 
     filas, modo = [], ("vacia" if not found else "sin_leer")
     if leer and found:
@@ -1320,7 +1316,7 @@ def main():
         raise ValueError(f"{error_rango} (TOURPLAN_FECHA_DESDE='{FECHA_DESDE}', TOURPLAN_FECHA_HASTA='{FECHA_HASTA}')")
     if desde < datetime.now().replace(hour=0, minute=0, second=0, microsecond=0):
         print(f"⚠ La fecha Desde ({L.fmt_tp(desde)}) es anterior a hoy: se incluyen servicios pasados.")
-    print(f"Rango de servicios: {L.fmt_tp(desde)} – {L.fmt_tp(hasta)} · tope MAX_RESERVAS={MAX_RESERVAS}")
+    print(f"Rango de servicios: {L.fmt_tp(desde)} – {L.fmt_tp(hasta)}")
 
     t_inicio = time.time()
     carpeta, corrida = tp.preparar_carpeta_corrida(MODO)
