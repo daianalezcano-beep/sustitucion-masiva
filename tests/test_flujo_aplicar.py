@@ -180,9 +180,31 @@ class FlujoAplicar(unittest.TestCase):
 
     def test_tourplan_no_sustituye_ninguna(self):
         estado, obs, _ = self.correr(Mundo([fila("R1"), fila("R2")], ignorar=2))
-        self.assertEqual(estado, "ERROR_REVISAR")
+        self.assertEqual(estado, "ERROR: no sustituida")        # nada quedó en P: no frena la corrida
+        self.assertFalse(sd.L.detiene_corrida(estado))
         self.assertNotIn("OK vuelta", self.m.eventos)           # sin nada en P no hay vuelta
         self.assertEqual(self.ws_det.updates[-1][1], "NO_SUSTITUIDA")
+        self.assertIn("NO SUSTITUIDAS por Tourplan", obs)
+
+    def test_si_un_estado_no_se_sustituye_se_sigue_con_los_demas(self):
+        m = Mundo([fila("R1", "CX"), fila("R2", "OT"), fila("R3", "OT")])
+        self.preparar(m)
+        ok_normal = sd.ok_modal_y_summary
+
+        def ok(driver, etiqueta):
+            if etiqueta == "ida" and m.filtro == "CX":        # Tourplan responde con error y la reserva sigue en el original
+                m.eventos.append("OK ida (con error)")
+                return "summary con error"
+            return ok_normal(driver, etiqueta)
+        sd.ok_modal_y_summary = ok
+        estado, obs, found = sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
+        self.assertEqual((estado, found), ("ERROR: no sustituida", 3))
+        self.assertEqual(m.P, [])                               # no quedó nada en el provisorio
+        self.assertEqual(sorted(f["booking_ref"] for f in m.A), ["R1", "R2", "R3"])
+        self.assertIn("sustituidas 2; no sustituidas 1", obs)
+        self.assertIn("CX (1)", obs)
+        self.assertEqual(m.eventos.count("OK vuelta"), 1)       # el estado OT sí hizo ida y vuelta
+        self.assertEqual(m.eventos.count("confirmar"), 1)
 
     def test_sin_tope_de_reservas(self):
         estado, obs, found = self.correr(Mundo([fila(f"R{i}") for i in range(60)]))
@@ -561,6 +583,50 @@ class VerificacionPreviaDeProvisorios(unittest.TestCase):
         self.assertTrue(detenida)
         self.assertEqual(self.verificados, [("BUE", "GU")])                         # no sigue verificando
         self.assertEqual([r["__row_idx__"] for r in filas], [4, 5])                 # las demás quedan sin tocar (PENDIENTE)
+
+
+@unittest.skipIf(sd is None, "falta una dependencia para importar el script")
+class CodeConDescripcionVieja(unittest.TestCase):
+    """completar_code no acepta la descripción del código anterior mientras Tourplan valida el nuevo."""
+
+    def setUp(self):
+        self.guardado = {n: getattr(sd, n) for n in ("set_val_con_blur", "esperar_fin_carga")}
+        self.sleep = time.sleep
+        time.sleep = lambda s: self.sleep(s / 20)
+        self.tvel = sd.tp.VELOCIDAD
+        sd.tp.VELOCIDAD = 0.2
+        sd.esperar_fin_carga = lambda d, t=15: True
+
+    def tearDown(self):
+        for n, f in self.guardado.items():
+            setattr(sd, n, f)
+        time.sleep = self.sleep
+        sd.tp.VELOCIDAD = self.tvel
+
+    def dialogo(self, estado):
+        class El:
+            def __init__(s, css):
+                s.css = css
+
+            def get_attribute(s, _):
+                return estado["codigo"] if "optionCode" in s.css else estado["lecturas"]()
+
+        return lambda d: type("D", (), {"find_element": lambda self, by, css: El(css)})()
+
+    def test_espera_a_que_cambie_la_descripcion(self):
+        estado = {"codigo": "EZHTID", "n": 0}
+
+        def lecturas():
+            estado["n"] += 1
+            return "TF EZE/Htl vv" if estado["n"] <= 6 else "SUSTITUTO TEMPORAL"       # las primeras lecturas son las viejas
+        estado["lecturas"] = lecturas
+        sd.set_val_con_blur = lambda d, el, v: estado.update(codigo=v)
+        self.assertEqual(sd.completar_code(None, "000000", self.dialogo(estado)), "SUSTITUTO TEMPORAL")
+
+    def test_si_la_descripcion_no_cambia_se_acepta_tras_el_maximo(self):
+        estado = {"codigo": "X", "lecturas": lambda: "MISMO TEXTO"}
+        sd.set_val_con_blur = lambda d, el, v: estado.update(codigo=v)
+        self.assertEqual(sd.completar_code(None, "X", self.dialogo(estado)), "MISMO TEXTO")
 
 
 if __name__ == "__main__":

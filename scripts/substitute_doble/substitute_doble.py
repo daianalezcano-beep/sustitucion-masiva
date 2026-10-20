@@ -361,15 +361,19 @@ def completar_code(driver, codigo, dialogo=None):
     dialogo = dialogo or dialog_subs
     dlg = dialogo(driver)
     cod = dlg.find_element(By.CSS_SELECTOR, "#optionCode > tp-validator > input")
-    set_val_con_blur(driver, cod, codigo)
-    pausa(0.8)
-    esperar_fin_carga(driver)
 
     def descripcion():
         d = dialogo(driver).find_element(By.CSS_SELECTOR, "input.tpdescription-optiondescription")
         return (d.get_attribute("value") or "").strip()
 
-    desc = esperar(descripcion, 8)
+    antes = descripcion()
+    set_val_con_blur(driver, cod, codigo)
+    time.sleep(0.4)
+    esperar_fin_carga(driver)
+    # La descripción tiene que ser la del código nuevo: mientras Tourplan lo valida puede seguir mostrando la del código
+    # anterior (una búsqueda con el código sin validar daría un Found falso). Si es otra, se acepta en cuanto cambia; si
+    # coincide con la anterior (mismo texto bajo otro proveedor) se acepta después de esperar el máximo.
+    desc = esperar(lambda: descripcion() not in ("", antes) and descripcion(), 6) or esperar(descripcion, 3)
     if not desc:
         raise ErrorFila("ERROR: código", f"Code '{codigo}': Description quedó vacía (código inexistente o datos previos mal)")
     final = (dialogo(driver).find_element(
@@ -1307,7 +1311,7 @@ def procesar_fila_aplicar(driver, ctx, row):
             f"IDA: mover al provisorio {loc}/{psup}/{stype}/{pcod}; después la VUELTA (devolverlas al original) se hace sola "
             f"y se verifica contra la foto inicial. Se hace click en el OK de la ida del primer estado y el resto sigue solo.")
     ctx["provisorios_ok"].discard((loc, stype))      # este provisorio se va a usar: antes de la próxima combinación que lo use se revisa de nuevo
-    hechos, resultados = [], []
+    hechos, resultados, no_sustituidos = [], [], []
     for i, g in enumerate(grupos):
         try:
             filtro_ss = None
@@ -1320,9 +1324,11 @@ def procesar_fila_aplicar(driver, ctx, row):
                 raise
             raise ErrorFila(e.estado, f"{e.detalle} (estados ya procesados sin problema: {hechos})")
         if res["sin_sustituir"]:
-            return "ERROR_REVISAR", (f"[APLICAR {ahora()}] Tourplan no sustituyó ninguna de las {res['found']} reserva(s) en estado "
-                                      f"{g['status']} (siguen en el original). Estados ya procesados: {hechos or 'ninguno'}. "
-                                      f"{' | '.join(res['obs'])}"), found0
+            # P quedó vacío (se verificó) y las reservas siguen en el original: no hay sustitutos sin asignar, así que se
+            # sigue con los demás estados; la combinación termina marcada para revisar.
+            print(f"    ⚠ Tourplan no sustituyó ninguna de las {res['found']} reserva(s) en estado {g['status']}; se sigue con los demás estados")
+            no_sustituidos.append(f"{g['status']} ({res['found']}): {' | '.join(res['obs'])}")
+            continue
         hechos.append(g["status"])
         resultados.append(res)
 
@@ -1330,10 +1336,15 @@ def procesar_fila_aplicar(driver, ctx, row):
     movidas = sum(r["movidas"] for r in resultados)
     no_movidas = sum(r["no_movidas"] for r in resultados)
     obs = [o for r in resultados for o in r["obs"]]
-    resumen = (f"[APLICAR {ahora()}] {found0} reserva(s) en A ({cuenta}); sustituidas {movidas}; no sustituidas {no_movidas}; "
+    sin_mover = no_movidas + sum(len(g["filas"]) for g in grupos if g["status"] not in hechos)
+    resumen = (f"[APLICAR {ahora()}] {found0} reserva(s) en A ({cuenta}); sustituidas {movidas}; no sustituidas {sin_mover}; "
                f"{' | '.join(obs)}")
+    if no_sustituidos:
+        resumen += " | NO SUSTITUIDAS por Tourplan (siguen en el original): " + "; ".join(no_sustituidos)
     if diferencias:
         return "ERROR_REVISAR", resumen + " | DIFERENCIAS: " + "; ".join(diferencias), found0
+    if no_sustituidos:
+        return "ERROR: no sustituida", resumen, found0
     return "OK", resumen + " | verificado: el original quedó idéntico a la foto inicial y el provisorio vacío", found0
 
 
