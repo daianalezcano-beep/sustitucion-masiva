@@ -119,12 +119,12 @@ python scripts\substitute_doble\substitute_doble.py
 
 ## Pendientes anotados
 
-- **Riesgo abierto (2026-10-20): la venta.** En el ambiente de **test** (actualizado hace poco a la última versión de Tourplan) la corrida dejó
-  Retail y Agent en 0,00 en 6 reservas que antes tenían venta (p. ej. 99,30), con Retain Sell Price tildado en ida y vuelta. En **producción** no
-  está validado que la venta se retenga con una venta distinta de cero: la reserva de prueba usada (EAFT249858) tiene Retail/Agent en 0,00, así
-  que no sirve para comprobarlo. Pendiente: prueba controlada en producción con una reserva con venta real, mirando la venta en cada paso
-  (ida y vuelta, a mano), antes de aplicar sobre reservas reales. El script no lee precios, así que no detecta este problema; hace falta un
-  control automático (Product Analysis antes/después: el costo puede cambiar, la venta no; si cambia, detener la corrida).
+- **La venta (validado en producción, 2026-10-20):** con una línea de venta distinta de cero (`GUIAPO/HRDID`, Retail 47,60, Agent 38,08, Comm 20 %)
+  y Retain Sell Price tildado, la sustitución a mano al `000000` y la vuelta dejaron Retail, Agent y Comm idénticos; el costo pasó de 30,94 a 0,00 y
+  volvió a 30,94 (recalculado con la tarifa). Es un solo caso (GU, cotización QU). **En el ambiente de test** (actualizado a una versión nueva de
+  Tourplan) la misma operación, con el script y a mano, **pierde la venta** (Retail/Agent de 99,30 a 0,00). Riesgo: que producción reciba esa versión.
+  El script no lee precios y no lo detectaría: pendiente un control automático (Product Analysis antes/después: el costo puede cambiar, la venta no;
+  si cambia, detener la corrida) y consultar a Tourplan. No usar test para validar precios.
 - **Provisorios:** el listado ya está en el código (116 combinaciones Location + Service Type bajo `1EURO1`). Si se crea uno nuevo en
   Tourplan hay que agregarlo a `PROVISORIOS_POR_LOCATION`. Se eliminó el provisorio de prueba `BUE/GUIAPO/GU/000000`.
 - Selectores del modal Replacement Service que **no están en las grabaciones**: los campos de pickup/drop-off/Remarks y los Retain
