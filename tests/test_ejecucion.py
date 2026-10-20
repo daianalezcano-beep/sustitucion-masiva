@@ -18,7 +18,7 @@ from common import logica as L
 def params(**kw):
     p = {"usuario": "u", "password": "p", "sheet_url": "https://docs.google.com/x", "base_url": "https://t.example/tp",
          "modo": "lectura", "desde": date(2026, 11, 1), "hasta": date(2049, 12, 31), "fila": 0,
-         "confirmo_sin_pendientes": False, "confirmar_ok": True, "pudo_service_types": ""}
+         "confirmar_ok": True, "pudo_service_types": ""}
     p.update(kw)
     return p
 
@@ -26,7 +26,7 @@ def params(**kw):
 class Parametros(unittest.TestCase):
     def test_validos(self):
         self.assertEqual(E.validar_parametros(params()), [])
-        self.assertEqual(E.validar_parametros(params(modo="aplicar", confirmo_sin_pendientes=True)), [])
+        self.assertEqual(E.validar_parametros(params(modo="aplicar")), [])
 
     def test_faltantes_y_rango(self):
         self.assertEqual(len(E.validar_parametros(params(usuario="", password=" ", sheet_url=""))), 3)
@@ -34,26 +34,22 @@ class Parametros(unittest.TestCase):
         self.assertTrue(any("Desde" in e for e in E.validar_parametros(params(desde=None))))
         self.assertTrue(any("2000" in e for e in E.validar_parametros(params(hasta=date(2100, 1, 1)))))
 
-    def test_aplicar_exige_confirmar_que_no_hay_pendientes(self):
-        errores = E.validar_parametros(params(modo="aplicar", confirmo_sin_pendientes=False))
-        self.assertTrue(any("000000" in e for e in errores))
-
     def test_advertencia_fecha_pasada(self):
         self.assertEqual(E.advertencias(params(desde=date(2026, 10, 1)), hoy=date(2026, 10, 19)),
                          ["La fecha Desde es anterior a hoy: se incluyen servicios pasados."])
         self.assertEqual(E.advertencias(params(), hoy=date(2026, 10, 19)), [])
 
     def test_entorno(self):
-        env = E.armar_entorno(params(modo="aplicar", confirmo_sin_pendientes=True, fila=7, pudo_service_types=" co, tr;ch "), {"PATH": "x"},
+        env = E.armar_entorno(params(modo="aplicar", fila=7, pudo_service_types=" co, tr;ch "), {"PATH": "x"},
                               Path("/repo"), Path("/run"), Path("/repo/salida"), Path("/run/ABORTAR.flag"),
                               "/cfg/credentials.json", "/cfg/token.json")
         self.assertEqual((env["TOURPLAN_FECHA_DESDE"], env["TOURPLAN_FECHA_HASTA"]), ("01/11/26", "31/12/49"))
         self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_FILA"], env["TOURPLAN_PUDO_SERVICE_TYPES"]), ("aplicar", "7", "CO,TR,CH"))
-        self.assertEqual((env["TOURPLAN_CONFIRMO_SIN_PENDIENTES"], env["TOURPLAN_CONFIRMAR_OK"]), ("SI", "1"))
+        self.assertEqual(env["TOURPLAN_CONFIRMAR_OK"], "1")
         self.assertEqual(env["TOURPLAN_CONFIRM_DIR"], str(Path("/run")))
         self.assertEqual(env["PATH"], "x")
         sin_fila = E.armar_entorno(params(), {}, Path("/r"), Path("/d"), Path("/s"), Path("/f"), "c", "t")
-        self.assertEqual((sin_fila["TOURPLAN_FILA"], sin_fila["TOURPLAN_CONFIRMO_SIN_PENDIENTES"]), ("", ""))
+        self.assertEqual(sin_fila["TOURPLAN_FILA"], "")
         # 31/12/49 es la fecha que Tourplan interpreta como 2049
         self.assertEqual(L.parsear_fecha(env["TOURPLAN_FECHA_HASTA"]).year, 2049)
 

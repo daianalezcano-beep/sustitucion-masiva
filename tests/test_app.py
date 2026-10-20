@@ -176,21 +176,21 @@ class App(unittest.TestCase):
         self.assertEqual(kw["stdin"], __import__("subprocess").DEVNULL)    # nunca queda esperando una consola
         self.assertTrue(Path(env["TOURPLAN_CONFIRM_DIR"]).is_dir())
 
-    def test_aplicar_exige_la_confirmacion_de_pendientes(self):
+    def test_aplicar_se_ejecuta_sin_checkbox_de_pendientes_ni_de_confirmacion(self):
         self.configurar()
         at = self.app()
         at.radio(key="modo").set_value("Aplicar cambios (modifica Tourplan)").run()
         self.assertTrue(any("MODIFICA reservas reales" in w.value for w in at.warning))
-        self.assertTrue(self.boton(at, "Ejecutar").disabled)
-        self.assertTrue(any("000000" in c.value for c in at.caption))
-        at.checkbox(key="confirmo").check().run()
+        claves = [c.key for c in at.checkbox]
+        self.assertNotIn("confirmo", claves)                        # ni "revisé 000000" ni "pedir confirmación"
+        self.assertNotIn("confirmar_ok", claves)
         self.assertFalse(self.boton(at, "Ejecutar").disabled)
         at.text_input(key="pudo_types").set_value(" co, tr;ch ").run()
         with mock.patch("subprocess.Popen", ProcFalso):
             self.boton(at, "Ejecutar").click().run()
         env = ProcFalso.llamada[1]["env"]
-        self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_CONFIRMO_SIN_PENDIENTES"], env["TOURPLAN_CONFIRMAR_OK"]), ("aplicar", "SI", "0"))        # sin confirmación manual
-        self.assertEqual(env["TOURPLAN_PUDO_SERVICE_TYPES"], "CO,TR,CH")        # vacío por defecto: en ningún Service Type
+        self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_CONFIRMAR_OK"]), ("aplicar", "0"))        # sin confirmación manual
+        self.assertEqual(env["TOURPLAN_PUDO_SERVICE_TYPES"], "CO,TR,CH")
 
     def test_fechas_invalidas_bloquean(self):
         self.configurar()

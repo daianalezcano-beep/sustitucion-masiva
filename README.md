@@ -23,7 +23,7 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
 - **Configuración** (una vez por PC; se comparte con la otra app de Tourplan): usuario y contraseña de Tourplan y URL del Sheet (la URL del Sheet se carga solo acá, no en la pantalla principal).
 - **Parámetros:** modo (solo revisar / aplicar), servicios desde (obligatoria; avisa si es anterior a hoy) y hasta (por defecto
   31/12/2049), URL de Tourplan, "solo la fila nº" para probar una combinación.
-- **Modo aplicar:** exige tildar que se revisó a mano que no hay códigos `000000` pendientes. La app ya no pide confirmación manual (se quitó el checkbox): las verificaciones del script (provisorio libre antes y después, foto original vs. final) la reemplazan. Con `TOURPLAN_CONFIRMAR_OK=1` (solo desde la consola) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
+- **Modo aplicar:** la app ya no pide confirmación manual (se quitó el checkbox): las verificaciones del script (provisorio libre antes y después, foto original vs. final) la reemplazan. Con `TOURPLAN_CONFIRMAR_OK=1` (solo desde la consola) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
   **Continuar / Cancelar** (y la captura del modal). La vuelta se hace sola: frenar entre ida y vuelta dejaría reservas en el provisorio.
 - **Comparar reportes antes / después:** desplegable al final de la app. Se suben los dos reportes Product Analysis (CSV, exportados con las mismas
   opciones), se toca **Comparar** y muestra por línea cuánto cambió el costo y si cambió la venta (Retail / Agent), con las líneas con venta modificada
@@ -78,7 +78,6 @@ python scripts\substitute_doble\substitute_doble.py
 
 ```
 set TOURPLAN_MODO=aplicar
-set TOURPLAN_CONFIRMO_SIN_PENDIENTES=SI
 set TOURPLAN_FECHA_DESDE=01/11/26
 set TOURPLAN_FECHA_HASTA=01/11/26
 set TOURPLAN_FILA=2
@@ -94,8 +93,8 @@ python scripts\substitute_doble\substitute_doble.py
   verificación final contra la foto (si el original quedó idéntico a la foto no se vuelve a consultar el provisorio: quedó vacío por construcción) → `ESTADO` `OK` / `ERROR_REVISAR` / `ERROR_COLGADAS`.
 - `TOURPLAN_CONFIRMAR_OK=1` (default): se detiene una vez por combinación, antes del OK de la ida, y espera que se escriba `SI` en la consola (pensado para las
   primeras pruebas; con `0` no pregunta).
-- `TOURPLAN_CONFIRMO_SIN_PENDIENTES=SI` es obligatorio: confirma que se revisó a mano que no quedan `000000` pendientes. Además el script
-  no arranca si `SUBSTITUTE_DETALLE` tiene reservas en `FASE` `IDA_EN_CURSO` / `IDA` / `VUELTA` (una corrida anterior cortada).
+- El script no arranca si `SUBSTITUTE_DETALLE` tiene reservas en `FASE` `IDA_EN_CURSO` / `IDA` / `VUELTA` (una corrida anterior cortada). Que los
+  `000000` estén libres lo comprueba el propio script en Tourplan (verificación previa); ya no hay que tildar nada a mano.
 - Sin la app, `TOURPLAN_CONFIRMAR_OK=1` pide escribir `SI` en la consola; con la app (`TOURPLAN_CONFIRM_DIR`) la confirmación es por botones.
 - **Tiempos:** el script usa esperas activas (espera a que el campo, el diálogo o el listado estén listos) en lugar de pausas fijas, y al volver a
   buscar solo completa los campos del filtro que difieren de lo que la pantalla ya tiene (lee el valor real de cada campo; si cambia Location,
@@ -130,6 +129,9 @@ python scripts\substitute_doble\substitute_doble.py
   Tourplan) la misma operación, con el script y a mano, **pierde la venta** (Retail/Agent de 99,30 a 0,00). Riesgo: que producción reciba esa versión.
   El script no lee precios y no lo detectaría: pendiente un control automático (Product Analysis antes/después: el costo puede cambiar, la venta no;
   si cambia, detener la corrida) y consultar a Tourplan. No usar test para validar precios.
+- **Service Types en los que analizar pickup / drop-off / Remarks (pendiente de rediseño):** hoy es un campo de texto en la app (vacío = ninguno)
+  y, si en un Service Type no habilitado aparecen esos datos, la combinación se rechaza. Hay que darle una vuelta (cómo se define, dónde se guarda,
+  qué default conviene y qué hacer cuando los datos difieren entre reservas) antes de usarlo en volumen. Anotado, sin cambios por ahora.
 - **Provisorios:** el listado ya está en el código (116 combinaciones Location + Service Type bajo `1EURO1`). Si se crea uno nuevo en
   Tourplan hay que agregarlo a `PROVISORIOS_POR_LOCATION`. Se eliminó el provisorio de prueba `BUE/GUIAPO/GU/000000`.
 - Selectores del modal Replacement Service que **no están en las grabaciones**: los campos de pickup/drop-off/Remarks y los Retain

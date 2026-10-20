@@ -26,7 +26,7 @@ que sea una copia con ediciones mínimas.
 
 1. Entrada nueva en `SCRIPTS`: categoría "Reservas", `sheet: "SUBSTITUTE"`, `modo_options` lectura/aplicar (lectura por defecto).
 2. **Parámetros extra por corrida** (la app no tiene un mecanismo genérico): fecha Desde obligatoria, Hasta (31/12/2049),
-   Service Types con pickup/drop-off, "solo la fila nº", check de "no hay 000000 pendientes" y "confirmar antes de cada OK". Se arman con
+   Service Types con pickup/drop-off, "solo la fila nº", y el comparador de reportes antes/después. Se arman con
    `common/ejecucion.armar_entorno`.
 3. **Confirmación antes de cada OK:** el script publica `confirmacion_pendiente.txt` en `TOURPLAN_CONFIRM_DIR` y espera
    `confirmacion_respuesta.txt`; la app muestra los botones Continuar / Cancelar (ver `render_en_vivo`).

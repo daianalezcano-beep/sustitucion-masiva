@@ -168,12 +168,10 @@ def render_parametros(estado):
     fila = c5.number_input("Solo la fila nº (0 = todas)", min_value=0, value=0, step=1, disabled=bloqueado, key="fila",
                            help="Para probar una combinación puntual del Sheet.")
 
-    confirmo, pudo_types = False, ""
+    pudo_types = ""
     if modo == "aplicar":
         st.warning("⚠️ **Modo aplicar: esta corrida MODIFICA reservas reales en Tourplan.** Procesa todas las reservas de cada "
                    "combinación; si tiene varios estados de servicio, los procesa de a uno con el filtro de Tourplan.")
-        confirmo = st.checkbox("Revisé a mano (reporte de Tourplan) que no hay códigos 000000 pendientes de sustituir",
-                               disabled=bloqueado, key="confirmo")
         pudo_types = st.text_input("Service Types en los que analizar pickup / drop-off / Remarks", value="", disabled=bloqueado,
                                    key="pudo_types", placeholder="ej.: CO, TR (vacío = en ninguno)",
                                    help="En estos Service Types el script lee esos datos de cada reserva y los repone en la vuelta. "
@@ -182,7 +180,7 @@ def render_parametros(estado):
 
     usuario, password = user_config.tp_credenciales_default()
     return {"modo": modo, "desde": desde, "hasta": hasta, "sheet_url": sheet_url,
-            "base_url": base_url, "fila": int(fila), "confirmo_sin_pendientes": confirmo, "confirmar_ok": False,
+            "base_url": base_url, "fila": int(fila), "confirmar_ok": False,
             "pudo_service_types": pudo_types, "usuario": usuario, "password": password}
 
 

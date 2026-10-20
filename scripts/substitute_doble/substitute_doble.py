@@ -107,7 +107,6 @@ CONFIRM_DIR = os.environ.get("TOURPLAN_CONFIRM_DIR", "").strip()
 # Service Types (separados por coma) en los que SÍ se analizan y reponen pickup/drop-off/Remarks. En los demás se
 # asume que no corresponden: si igual aparecen datos en el listado, la combinación se rechaza sin tocar nada.
 PUDO_SERVICE_TYPES = {t.strip().upper() for t in os.environ.get("TOURPLAN_PUDO_SERVICE_TYPES", "").split(",") if t.strip()}
-CONFIRMO_SIN_PENDIENTES = os.environ.get("TOURPLAN_CONFIRMO_SIN_PENDIENTES", "").strip().upper()
 # Reusar la pantalla Substitute Service entre búsquedas (volver a la solapa Filter) ahorra ~15 s por
 # consulta. Si la pantalla no está como se espera, se abre de cero. TOURPLAN_REUSAR_PANTALLA=0 la desactiva.
 # NO está validado contra Tourplan real: Found podría quedar con el valor de la consulta anterior
@@ -1408,8 +1407,8 @@ def cargar_hojas():
 
 
 def exigir_sin_pendientes(ws_det):
-    """Modo aplicar: no arranca si el detalle tiene reservas a mitad de camino (corrida anterior cortada)
-    ni si la usuaria no confirmó que revisó que no quedan 000000 pendientes."""
+    """Modo aplicar: no arranca si el detalle tiene reservas a mitad de camino (corrida anterior cortada). Que no haya
+    sustitutos sin asignar en los provisorios lo comprueba prechequear_provisorios, en Tourplan, antes de procesar."""
     f_det, c_det = cargar_sheet(ws_det)
     f_det = [L.canonizar_fila(f, COLS_DET) for f in f_det]
     pend = L.detalle_pendiente(f_det)
@@ -1417,9 +1416,6 @@ def exigir_sin_pendientes(ws_det):
         detalle = "\n".join(f"  {k[0]}/{k[1]}/{k[2]}/{k[3]} (corrida {k[4]}): {n} reserva(s)" for k, n in sorted(pend.items()))
         raise SystemExit("⛔ SUBSTITUTE_DETALLE tiene reservas a mitad de camino (FASE IDA_EN_CURSO / IDA / VUELTA): una corrida "
                          f"anterior no terminó. Revisar en Tourplan que no queden en el provisorio y corregir la FASE:\n{detalle}")
-    if CONFIRMO_SIN_PENDIENTES != "SI":
-        raise SystemExit("⛔ Modo aplicar: confirmá que revisaste a mano (reporte de Tourplan) que no hay códigos 000000 "
-                         "pendientes de sustituir, con TOURPLAN_CONFIRMO_SIN_PENDIENTES=SI")
 
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────

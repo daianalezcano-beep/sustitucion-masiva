@@ -368,12 +368,7 @@ class SinPendientes(unittest.TestCase):
             sd.exigir_sin_pendientes(ws)
         self.assertIn("a mitad de camino", str(cm.exception))
         sd.cargar_sheet = lambda w: ([{"FASE": "VERIFICADO"}], list(sd.COLS_DET))
-        sd.CONFIRMO_SIN_PENDIENTES = ""
-        with self.assertRaises(SystemExit) as cm:
-            sd.exigir_sin_pendientes(ws)
-        self.assertIn("TOURPLAN_CONFIRMO_SIN_PENDIENTES=SI", str(cm.exception))
-        sd.CONFIRMO_SIN_PENDIENTES = "SI"
-        sd.exigir_sin_pendientes(ws)         # no levanta
+        sd.exigir_sin_pendientes(ws)         # sin reservas a mitad de camino: no levanta
 
 
 @unittest.skipIf(sd is None, "falta una dependencia para importar el script")
@@ -579,7 +574,7 @@ class MainOrquestador(unittest.TestCase):
     def setUp(self):
         import tempfile
         self.escrituras, self.llamadas = [], []
-        self.guardado = {k: getattr(sd, k) for k in ("MODO", "SHEET_URL", "FECHA_DESDE", "FECHA_HASTA", "FILA", "CONFIRMO_SIN_PENDIENTES",
+        self.guardado = {k: getattr(sd, k) for k in ("MODO", "SHEET_URL", "FECHA_DESDE", "FECHA_HASTA", "FILA",
                                                        "cargar_hojas", "actualizar_fila_sheet", "procesar_fila_lectura",
                                                        "procesar_fila_aplicar", "chequear_abort", "exigir_sin_pendientes")}
         self.tpg = {k: getattr(sd.tp, k) for k in ("crear_driver", "login", "logout", "preparar_carpeta_corrida", "USERNAME", "PASSWORD")}
@@ -712,11 +707,11 @@ class MainOrquestador(unittest.TestCase):
         sd.main()                                                      # no debe cortar ni salir con 76
         self.assertEqual(len([1 for i, v in self.escrituras if v.get("ESTADO") == "ERROR_COLGADAS"]), 2)
 
-    def test_aplicar_sin_confirmacion_no_abre_el_navegador(self):
+    def test_aplicar_con_detalle_a_mitad_de_camino_no_abre_el_navegador(self):
         sd.MODO = "aplicar"
         sd.exigir_sin_pendientes = self.guardado["exigir_sin_pendientes"]
-        sd.CONFIRMO_SIN_PENDIENTES = ""
-        sd.cargar_sheet = lambda w: ([], list(sd.COLS_DET))
+        sd.cargar_sheet = lambda w: ([{"FASE": "IDA", "LOCATION": "BUE", "SUPPLIER": "S", "SERVICE TYPE": "GU", "CODIGO": "C",
+                                      "CORRIDA": "c0"}], list(sd.COLS_DET))
         with self.assertRaises(SystemExit):
             sd.main()
         self.assertEqual(self.llamadas, [])                              # ni driver ni login
