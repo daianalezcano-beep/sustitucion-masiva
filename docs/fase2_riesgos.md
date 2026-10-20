@@ -16,7 +16,7 @@ contra HTML capturado; **nunca corrida contra Tourplan**. El primer intento debe
 | 6 | Costo | El script no lo ve | Lo verifica la usuaria con un reporte del sistema sobre la reserva de prueba |
 | 7 | Corte a mitad (Chrome, red, PC) | Entre ida y vuelta | Igual que el #2; Ctrl+C también hace logout |
 | 8 | Alguien edita las reservas durante la corrida | Producción compartida | La verificación final detecta diferencias → `ERROR_REVISAR` |
-| 9 | Provisorio inexistente o con restos | Se creó a mano | Validación previa (una vez por provisorio y corrida, todo el historial): si no existe o tiene reservas, la fila termina en ERROR sin tocar nada |
+| 9 | Provisorio inexistente o con restos | Se creó a mano | Verificación previa de todos los provisorios del input antes de empezar (todo el historial) y nueva revisión antes de reusar un provisorio ya usado en la corrida: si no existe o tiene reservas, la fila termina en ERROR sin tocar nada (con reservas, además se detiene la corrida) |
 
 ## Regla: sustitutos sin asignar
 

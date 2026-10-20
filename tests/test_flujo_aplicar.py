@@ -288,14 +288,22 @@ class FlujoAplicar(unittest.TestCase):
         self.assertEqual(cm.exception.estado, "ERROR: provisorio en uso")
         self.assertNotIn("OK ida", m.eventos)
 
-    def test_guarda_del_provisorio_una_vez_por_corrida(self):
+    def test_el_provisorio_se_revisa_de_nuevo_antes_de_reusarlo(self):
         self.correr(Mundo([fila("R1")]))
         primero = self.m.eventos.count("consultar P")
+        self.assertEqual(primero, 2)       # guarda + verificación de P tras la ida (sin comprobación final: A quedó idéntico)
         self.m.A = [fila("R9")]
         self.m.eventos.clear()
         sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
-        self.assertEqual(primero, 2)       # guarda + verificación de P tras la ida (sin comprobación final: A quedó idéntico)
-        self.assertEqual(self.m.eventos.count("consultar P"), 1)   # la guarda ya no se repite
+        self.assertEqual(self.m.eventos.count("consultar P"), 2)   # el provisorio ya se usó: antes de reusarlo se revisa otra vez
+        self.assertEqual(self.m.eventos[0], "consultar P")
+
+    def test_si_la_verificacion_previa_ya_lo_comprobo_no_se_repite(self):
+        self.preparar(Mundo([fila("R1")]))
+        self.ctx["provisorios_ok"].add(("BUE", "GU"))                 # lo dejó verificado prechequear_provisorios
+        sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
+        self.assertEqual(self.m.eventos.count("consultar P"), 1)       # solo la de después de la ida
+        self.assertNotIn(("BUE", "GU"), self.ctx["provisorios_ok"])    # y queda para revisar antes de volver a usarlo
 
     def test_cancelar_en_la_ida_no_mueve_nada(self):
         with self.assertRaises(sd.ErrorFila) as cm:
@@ -509,6 +517,55 @@ class EsperaDeResultados(unittest.TestCase):
         t0 = time.time()
         self.assertEqual(sd.esperar_resultados(None), (3, 0))
         self.assertLess(time.time() - t0, 2)
+
+
+@unittest.skipIf(sd is None, "falta una dependencia para importar el script")
+class VerificacionPreviaDeProvisorios(unittest.TestCase):
+    def setUp(self):
+        names = ("verificar_provisorio_libre", "escribir_resultado_fila", "chequear_abort")
+        self.guardado = {n: getattr(sd, n) for n in names}
+        self.escritas, self.verificados = [], []
+        sd.chequear_abort = lambda: None
+        sd.escribir_resultado_fila = lambda ws, idx, cols, estado=None, obs=None: self.escritas.append((idx, estado))
+
+    def tearDown(self):
+        for n, f in self.guardado.items():
+            setattr(sd, n, f)
+
+    def filas(self):
+        return [{"__row_idx__": 2, "LOCATION": "BUE", "SUPPLIER": "S", "SERVICE TYPE": "GU", "CODIGO": "A"},
+                {"__row_idx__": 3, "LOCATION": "BUE", "SUPPLIER": "S", "SERVICE TYPE": "GU", "CODIGO": "B"},
+                {"__row_idx__": 4, "LOCATION": "FTE", "SUPPLIER": "S", "SERVICE TYPE": "GU", "CODIGO": "C"},
+                {"__row_idx__": 5, "LOCATION": "MDZ", "SUPPLIER": "S", "SERVICE TYPE": "GU", "CODIGO": "D"}]   # MDZ/GU: sin provisorio en el código
+
+    def correr(self, falla):
+        def verificar(driver, ctx, loc, stype, psup, pcod):
+            self.verificados.append((loc, stype))
+            if (loc, stype) in falla:
+                raise sd.ErrorFila(*falla[(loc, stype)])
+            ctx["provisorios_ok"].add((loc, stype))
+        sd.verificar_provisorio_libre = verificar
+        ctx, resumen = {"provisorios_ok": set()}, {"ok": 0, "error": 0, "reservas": 0}
+        filas, detenida = sd.prechequear_provisorios(None, ctx, self.filas(), None, [], resumen)
+        return filas, detenida, resumen
+
+    def test_todo_libre_verifica_cada_par_una_vez(self):
+        filas, detenida, resumen = self.correr({})
+        self.assertEqual(self.verificados, [("BUE", "GU"), ("FTE", "GU")])       # una vez por par; MDZ/GU no tiene provisorio
+        self.assertEqual((len(filas), detenida, self.escritas), (4, False, []))
+
+    def test_provisorio_inexistente_descarta_solo_las_filas_de_ese_par(self):
+        filas, detenida, resumen = self.correr({("BUE", "GU"): ("ERROR: provisorio inexistente", "no está")})
+        self.assertEqual([r["__row_idx__"] for r in filas], [4, 5])
+        self.assertEqual(sorted(self.escritas), [(2, "ERROR: provisorio inexistente"), (3, "ERROR: provisorio inexistente")])
+        self.assertEqual((detenida, resumen["error"]), (False, 2))
+        self.assertIn(("FTE", "GU"), self.verificados)                              # sigue con los demás pares
+
+    def test_provisorio_en_uso_detiene_todo_antes_de_procesar(self):
+        filas, detenida, resumen = self.correr({("BUE", "GU"): ("ERROR: provisorio en uso", "restos")})
+        self.assertTrue(detenida)
+        self.assertEqual(self.verificados, [("BUE", "GU")])                         # no sigue verificando
+        self.assertEqual([r["__row_idx__"] for r in filas], [4, 5])                 # las demás quedan sin tocar (PENDIENTE)
 
 
 if __name__ == "__main__":

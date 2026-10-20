@@ -83,8 +83,11 @@ set TOURPLAN_FILA=2
 python scripts\substitute_doble\substitute_doble.py
 ```
 
-- Por cada combinación: verifica que el provisorio (`<Location>/<proveedor>/<Service Type>/000000`) existe y no tiene reservas
-  (una vez por corrida, todo el historial) → foto de las reservas del original (11 columnas + panel derecho) → **ida** original →
+- **Antes de tocar nada** (verificación previa): para cada Location + Service Type del input comprueba que su provisorio
+  (`<Location>/1EURO1/<Service Type>/000000`) existe y no tiene reservas (todo el historial). Un par sin provisorio utilizable deja sus filas en
+  ERROR; si algún provisorio tiene reservas (sustitutos sin asignar) **no se procesa ninguna combinación**.
+- Por cada combinación: si su provisorio ya se usó antes en la corrida, lo vuelve a revisar antes de empezar → foto de las reservas del original
+  (columnas del listado, incluida la celda PU/DO) → **ida** original →
   provisorio → verifica el provisorio → **vuelta** provisorio → original (repone estado de servicio y pickup/drop-off/remarks) →
   verificación final contra la foto (si el original quedó idéntico a la foto no se vuelve a consultar el provisorio: quedó vacío por construcción) → `ESTADO` `OK` / `ERROR_REVISAR` / `ERROR_COLGADAS`.
 - `TOURPLAN_CONFIRMAR_OK=1` (default): se detiene una vez por combinación, antes del OK de la ida, y espera que se escriba `SI` en la consola (pensado para las

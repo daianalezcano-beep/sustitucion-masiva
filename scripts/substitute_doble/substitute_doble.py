@@ -1119,8 +1119,9 @@ def provisorio_de_fila(loc, stype):
 
 
 def verificar_provisorio_libre(driver, ctx, loc, stype, psup, pcod):
-    """Validación previa, UNA VEZ por provisorio y por corrida: existe en Tourplan y no tiene ninguna
-    reserva en todo el historial (01/01/2020 en adelante). Restos = una corrida anterior falló."""
+    """Validación previa del provisorio de una Location + Service Type: existe en Tourplan y no tiene ninguna
+    reserva en todo el historial (01/01/2020 en adelante). Restos = una corrida anterior falló. Una vez comprobado,
+    el par queda en ctx["provisorios_ok"] hasta que una combinación use ese provisorio (ahí se vuelve a pedir)."""
     clave = (loc, stype)
     if clave in ctx["provisorios_ok"]:
         return
@@ -1135,7 +1136,7 @@ def verificar_provisorio_libre(driver, ctx, loc, stype, psup, pcod):
         raise ErrorFila("ERROR: provisorio en uso", f"El provisorio {loc}/{psup}/{stype}/{pcod} tiene {r['found']} reserva(s) "
                         f"(desde {L.fmt_tp(GUARDA_DESDE)}): restos de una corrida anterior. No se continúa.")
     ctx["provisorios_ok"].add(clave)
-    print(f"    Provisorio {loc}/{psup}/{stype}/{pcod} existe y está libre (se verifica una vez por corrida)")
+    print(f"    Provisorio {loc}/{psup}/{stype}/{pcod} existe y está libre")
 
 
 def _fase_rango(ctx, rango, fase):
@@ -1306,6 +1307,7 @@ def procesar_fila_aplicar(driver, ctx, row):
     plan = (f"{loc}/{sup}/{stype}/{cod}: {found0} reserva(s) en {len(grupos)} estado(s) de servicio ({cuenta}). Por cada estado: "
             f"IDA: mover al provisorio {loc}/{psup}/{stype}/{pcod}; después la VUELTA (devolverlas al original) se hace sola "
             f"y se verifica contra la foto inicial. Se hace click en el OK de la ida del primer estado y el resto sigue solo.")
+    ctx["provisorios_ok"].discard((loc, stype))      # este provisorio se va a usar: antes de la próxima combinación que lo use se revisa de nuevo
     hechos, resultados = [], []
     for i, g in enumerate(grupos):
         try:
@@ -1334,6 +1336,40 @@ def procesar_fila_aplicar(driver, ctx, row):
     if diferencias:
         return "ERROR_REVISAR", resumen + " | DIFERENCIAS: " + "; ".join(diferencias), found0
     return "OK", resumen + " | verificado: el original quedó idéntico a la foto inicial y el provisorio vacío", found0
+
+
+def prechequear_provisorios(driver, ctx, filas, ws, columnas, resumen):
+    """Antes de tocar nada: para cada Location + Service Type del input comprueba que su provisorio existe en
+    Tourplan y está libre. Las filas de un par sin provisorio utilizable terminan en ERROR (y no se procesan); si
+    algún provisorio tiene reservas (sustitutos sin asignar) no se procesa NINGUNA combinación. Devuelve
+    (filas que siguen, detenida)."""
+    pares = {}
+    for r in filas:
+        try:
+            loc, _, stype, _ = campos_fila(r)
+        except ErrorFila:
+            continue          # la fila se rechaza después, por datos faltantes
+        if L.provisorio_para(loc, stype, PROVISORIOS):
+            pares.setdefault((loc, stype), []).append(r)
+    print(f"\nVerificación previa de provisorios: {len(pares)} combinación(es) Location + Service Type")
+    descartadas, detenida = set(), False
+    for (loc, stype), rows in pares.items():
+        chequear_abort()
+        try:
+            verificar_provisorio_libre(driver, ctx, loc, stype, PROVISORIOS[(loc, stype)], CODIGO_PROVISORIO)
+        except ErrorFila as e:
+            ctx["abierta"] = False
+            print(f"  ❌ {loc}/{stype}: {e.estado}: {e.detalle}")
+            for r in rows:
+                escribir_resultado_fila(ws, r["__row_idx__"], columnas, e.estado, e.detalle)
+                resumen["error"] += 1
+            descartadas.update(id(r) for r in rows)
+            if L.detiene_corrida(e.estado):
+                detenida = True
+                break
+    if not descartadas:
+        print("  ✅ Todos los provisorios existen y están libres")
+    return [r for r in filas if id(r) not in descartadas], detenida
 
 
 # ── Sheets ───────────────────────────────────────────────────────────────────
@@ -1483,6 +1519,11 @@ def main():
     try:
         tp.login(driver)
         sesion_iniciada = True
+
+        if MODO == "aplicar":
+            unicas, detenida = prechequear_provisorios(driver, ctx, unicas, ws, columnas, resumen)
+            if detenida:
+                unicas = []       # hay sustitutos sin asignar: no se procesa ninguna combinación
 
         for row in unicas:
             chequear_abort()
