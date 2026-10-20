@@ -120,7 +120,9 @@ COLS_DET = ["TIMESTAMP", "CORRIDA", "LOCATION", "SUPPLIER", "SERVICE TYPE", "COD
 
 URL_OPERATIONS = f"{tp.BASE_URL}/#/operations/OperationsBookings"
 URL_HOME = f"{tp.BASE_URL}/#/home"
-BOOKING_STATUS_EXCLUIR = "CX - Cancelled"
+# Texto del Booking Status "cancelado" según el ambiente: en producción "CX - Cancelled"; en test el mismo estado se llama
+# "Cancelled". Se usa el primero que exista en la lista (coincidencia exacta).
+BOOKING_STATUS_EXCLUIR = ("CX - Cancelled", "Cancelled")
 
 # Provisorios (viven en el código): uno por Location + Service Type, todos bajo el proveedor 1EURO1 y con el
 # código 000000 (los options Z*NO USAR* ya creados en Tourplan). Una fila cuya Location + Service Type no esté
@@ -432,17 +434,20 @@ def fijar_service_status(driver, nombre=None, nth=0):
                     f"{'todos' if nombre is None else repr(nombre)} (quedó distinto tras 3 intentos)")
 
 
-def destildar_booking_status(driver, texto=BOOKING_STATUS_EXCLUIR):
-    """Destilda SOLO `texto` en el grupo Booking Status (se ubica por el texto
-    del label, no por índice) y verifica el resultado: ese ítem destildado y
-    todos los demás (salvo 'All', que Tourplan puede destildar solo) tildados."""
+def destildar_booking_status(driver, textos=BOOKING_STATUS_EXCLUIR):
+    """Destilda SOLO el ítem cancelado en el grupo Booking Status (el primero de `textos` que exista; se ubica por
+    el texto del label, no por índice) y verifica el resultado: ese ítem destildado y todos los demás (salvo 'All',
+    que Tourplan puede destildar solo) tildados. Devuelve (texto_destildado, ítems_tildados)."""
     dlg = dialog_subs(driver)
     estados = driver.execute_script(JS_ESTADOS, dlg, "booking status")
     if not estados:
         raise ErrorFila("ERROR: filtro de estado", "No encontré el grupo Booking Status")
-    item = next((e for e in estados if e["texto"].lower() == texto.lower()), None)
-    if item is None:
-        raise ErrorFila("ERROR: filtro de estado", f"Booking Status no tiene el ítem '{texto}' (hay: {[e['texto'] for e in estados]})")
+    existentes = {e["texto"].lower() for e in estados}
+    texto = next((t for t in ((textos,) if isinstance(textos, str) else textos) if t.lower() in existentes), None)
+    if texto is None:
+        raise ErrorFila("ERROR: filtro de estado", f"Booking Status no tiene ninguno de los ítems {list(textos)} "
+                        f"(hay: {[e['texto'] for e in estados]})")
+    item = next(e for e in estados if e["texto"].lower() == texto.lower())
     if item["tilda"]:
         if not driver.execute_script(JS_CLICK_ESTADO, dlg, "booking status", texto):
             raise ErrorFila("ERROR: filtro de estado", f"No pude clickear '{texto}'")
@@ -454,7 +459,7 @@ def destildar_booking_status(driver, texto=BOOKING_STATUS_EXCLUIR):
             raise ErrorFila("ERROR: filtro de estado", f"'{texto}' sigue tildado tras el click")
         if not es_objetivo and e["texto"].lower() != "all" and not e["tilda"]:
             raise ErrorFila("ERROR: filtro de estado", f"Quedó destildado '{e['texto']}' además de '{texto}'")
-    return [e["texto"] for e in estados if e["tilda"] and e["texto"].lower() != "all"]
+    return texto, [e["texto"] for e in estados if e["tilda"] and e["texto"].lower() != "all"]
 
 
 # ── Results ──────────────────────────────────────────────────────────────────
@@ -689,11 +694,11 @@ def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, 
     desc = completar_code(driver, cod)
     desde = escribir_fecha(driver, "serviceDateFrom", desde_dt)
     hasta = escribir_fecha(driver, "serviceDateTo", hasta_dt)
-    tildados = destildar_booking_status(driver)
+    excluido, tildados = destildar_booking_status(driver)
     fijar_service_status(driver, *(service_status or (None, 0)))
     marca("filtro")
     print(f"    Filtro OK: {ubic} | {srv} | {prv} | {cod} ({desc}) | {L.fmt_tp(desde)}–{L.fmt_tp(hasta)} "
-          f"| Booking Status sin '{BOOKING_STATUS_EXCLUIR}' ({len(tildados)} tildados) "
+          f"| Booking Status sin '{excluido}' ({len(tildados)} tildados) "
           f"| Service Status: {'todos' if not service_status else 'solo ' + service_status[0]}")
 
     buscar(driver)

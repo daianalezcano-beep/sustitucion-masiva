@@ -72,5 +72,52 @@ class FiltroServiceStatus(unittest.TestCase):
         self.assertEqual(self.tildados("booking status"), ["X"])
 
 
+def html_booking(nombres):
+    items = "".join(f'<li class="list-row"><label class="tpcheckbox"><input type="checkbox" checked><i></i></label>'
+                    f'<label class="tplabel-list">{n}</label></li>' for n in nombres)
+    return f'<div><div class="legend">Booking Status</div><ul>{items}</ul></div>'
+
+
+@unittest.skipIf(sd is None or not os.path.exists(CHROMIUM), "falta playwright o chromium")
+class BookingStatusCancelado(unittest.TestCase):
+    def comprobar(self, nombres, esperado):
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+            pagina = browser.new_page()
+            pagina.set_content(html_booking(nombres))
+            guardado = (sd.dialog_subs, sd.pausa)
+            sd.dialog_subs, sd.pausa = (lambda d: "__DOC__"), (lambda s: None)
+            try:
+                d = Driver(pagina)
+                excluido, tildados = sd.destildar_booking_status(d)
+                estados = d.execute_script(sd.JS_ESTADOS, "__DOC__", "booking status")
+            finally:
+                sd.dialog_subs, sd.pausa = guardado
+                browser.close()
+        self.assertEqual(excluido.lower(), esperado.lower())
+        self.assertEqual([e["texto"] for e in estados if not e["tilda"]], [esperado])     # solo ese quedó destildado
+        self.assertNotIn(esperado, tildados)
+
+    def test_produccion_cx_cancelled(self):
+        self.comprobar(["All", "CC- CXL with Charges", "CX - Cancelled", "IC", "OK"], "CX - Cancelled")
+
+    def test_test_se_llama_cancelled(self):
+        self.comprobar(["ALL", "CANCELLED", "CXL WITH CHARGES", "FIT CONFIRMED", "QUOTE"], "CANCELLED")
+
+    def test_sin_ninguno_es_error(self):
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+            pagina = browser.new_page()
+            pagina.set_content(html_booking(["All", "CXL With Charges", "Quote"]))
+            guardado = sd.dialog_subs
+            sd.dialog_subs = lambda d: "__DOC__"
+            try:
+                with self.assertRaises(sd.ErrorFila):
+                    sd.destildar_booking_status(Driver(pagina))
+            finally:
+                sd.dialog_subs = guardado
+                browser.close()
+
+
 if __name__ == "__main__":
     unittest.main()
