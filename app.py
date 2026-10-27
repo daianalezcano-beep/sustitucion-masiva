@@ -453,7 +453,8 @@ def render_comparador():
         despues = c2.file_uploader("Reporte DESPUÉS (.csv)", type=["csv"], key="rep_despues")
         if st.button("Comparar", type="primary", disabled=not (antes and despues), key="comparar"):
             try:
-                st.session_state["_comparacion"] = comparador.comparar(antes.getvalue(), despues.getvalue())
+                st.session_state["_comparacion"] = comparador.comparar(antes.getvalue(), despues.getvalue(),
+                                                                       no_tocada=reporte_entrada.es_por_asignar)
             except Exception as e:      # un archivo que no es el reporte no debe romper la app
                 st.session_state["_comparacion"] = None
                 st.error(f"No pude leer los reportes: {e}")
@@ -470,10 +471,19 @@ def render_comparador():
                 st.caption("Variaciones del Retail más comunes: " + "; ".join(
                     f"{v['Δ Retail %']:+.2f} % en {v['Líneas']} línea(s) ({v['Moneda'] or 'sin moneda'})" for v in res["variaciones_venta"][:5])
                     + ". Si casi todas coinciden en el mismo porcentaje, suele ser un factor común (por ejemplo, el tipo de cambio).")
-        elif r["Solo en uno de los dos"]:
-            st.warning(f"La venta no cambió, pero {r['Solo en uno de los dos']} línea(s) aparecen en un solo reporte.")
-        else:
-            st.success("La venta no cambió en ninguna línea.")
+        if "Control: líneas no tocadas" in r:
+            if r["Control: líneas no tocadas"] == 0:
+                st.caption("Control: el reporte no tiene líneas de proveedores por asignar (que la herramienta no toca) para comparar.")
+            elif r["Control: con venta modificada"]:
+                st.warning(f"Control: la venta también cambió en {r['Control: con venta modificada']} de {r['Control: líneas no tocadas']} líneas que la herramienta "
+                           "NO toca (proveedores por asignar). Eso apunta a una causa externa a las sustituciones (tipo de cambio, comisiones, tarifas).")
+            else:
+                st.caption(f"Control: en las {r['Control: líneas no tocadas']} líneas que la herramienta no toca la venta no cambió.")
+        if not r["Venta modificada"]:
+            if r["Solo en uno de los dos"]:
+                st.warning(f"La venta no cambió, pero {r['Solo en uno de los dos']} línea(s) aparecen en un solo reporte.")
+            else:
+                st.success("La venta no cambió en ninguna línea.")
         cols = st.columns(len(r))
         for col, (nombre, n) in zip(cols, r.items()):
             col.metric(nombre, n)

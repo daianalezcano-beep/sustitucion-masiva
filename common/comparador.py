@@ -103,9 +103,11 @@ def _norm_otro(col, v):
     return str(n) if n is not None else (v or "").strip()
 
 
-def comparar(antes, despues):
+def comparar(antes, despues, no_tocada=None):
     """Devuelve {'resumen': {...}, 'lineas': [...]}. Cada línea: referencia, servicio, costo y venta antes/después, y un
-    'Resultado': Venta modificada / Costo cambió / Otros cambios / Sin cambios / Solo antes / Solo después."""
+    'Resultado': Venta modificada / Costo cambió / Otros cambios / Sin cambios / Solo antes / Solo después.
+    `no_tocada`: función opcional que dice si una línea del reporte es de las que la herramienta NO procesa (por ejemplo,
+    proveedor por asignar). Sirve de grupo de control: si la venta también cambió ahí, la causa no son las sustituciones."""
     pre, post = leer_reporte(antes), leer_reporte(despues)
     grupos_post = {}
     for f in post:
@@ -114,10 +116,10 @@ def comparar(antes, despues):
     for f in pre:
         lista = grupos_post.get(_clave(f), [])
         g = lista.pop(0) if lista else None
-        lineas.append(_linea(f, g))
+        lineas.append(_linea(f, g, no_tocada))
     for lista in grupos_post.values():
         for g in lista:
-            lineas.append(_linea(None, g))
+            lineas.append(_linea(None, g, no_tocada))
     orden = {"Venta modificada": 0, "Solo antes": 1, "Solo después": 1, "Otros cambios": 2, "Costo cambió": 3, "Sin cambios": 4}
     lineas.sort(key=lambda x: (orden[x["Resultado"]], x["Reference"], x["Option"], x["Fecha"]))
     cuenta = lambda r: sum(1 for x in lineas if x["Resultado"] == r)
@@ -130,6 +132,10 @@ def comparar(antes, despues):
         "Solo en uno de los dos": cuenta("Solo antes") + cuenta("Solo después"),
         "Sin cambios": cuenta("Sin cambios"),
     }
+    if no_tocada:
+        control = [x for x in lineas if x["Grupo"] == "No tocada" and x["Resultado"] != "Solo antes" and x["Resultado"] != "Solo después"]
+        resumen["Control: líneas no tocadas"] = len(control)
+        resumen["Control: con venta modificada"] = sum(1 for x in control if x["Resultado"] == "Venta modificada")
     # Variaciones de la venta (Retail) más comunes: si casi todas las líneas cambiaron en el mismo porcentaje, apunta a un factor común
     # (por ejemplo un cambio de tipo de cambio) y no a algo propio de cada reserva.
     variaciones = Counter((x["Δ Retail %"], x["Moneda"]) for x in lineas if x["Resultado"] == "Venta modificada" and x["Δ Retail %"] is not None)
@@ -137,9 +143,10 @@ def comparar(antes, despues):
             "variaciones_venta": [{"Δ Retail %": p, "Moneda": m, "Líneas": n} for (p, m), n in variaciones.most_common(8)]}
 
 
-def _linea(f, g):
+def _linea(f, g, no_tocada=None):
     base = f or g
-    out = {"Reference": base.get("Reference", ""), "Booking": base.get("BookingName", ""), "Loc": base.get("Loc", ""),
+    out = {"Grupo": "No tocada" if no_tocada and no_tocada(base) else "Sustituida", "Supplier": base.get("Supplier", ""),
+           "Reference": base.get("Reference", ""), "Booking": base.get("BookingName", ""), "Loc": base.get("Loc", ""),
            "Service": base.get("Service", ""), "Option": base.get("Option", ""), "Description": base.get("Description", ""),
            "Fecha": (fecha(base.get("Date", "")) or datetime.min).strftime("%d/%m/%Y") if fecha(base.get("Date", "")) else base.get("Date", "")}
     if f is None or g is None:

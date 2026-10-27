@@ -54,6 +54,15 @@ class Comparador(unittest.TestCase):
         self.assertTrue(r["variaciones_venta"])
         self.assertTrue(all("Líneas" in v and "Δ Retail %" in v for v in r["variaciones_venta"]))
 
+    def test_grupo_de_control_con_lineas_no_tocadas(self):
+        # la línea DSID (RIV1) se considera "no tocada": si su venta cambió, el control lo informa
+        r = C.comparar(ANTES.encode("utf-8"), DESPUES.encode("utf-8"), no_tocada=lambda f: f.get("Option") == "DSID")
+        self.assertEqual((r["resumen"]["Control: líneas no tocadas"], r["resumen"]["Control: con venta modificada"]), (1, 1))
+        self.assertEqual([x["Option"] for x in r["lineas"] if x["Grupo"] == "No tocada"], ["DSID"])
+        self.assertTrue(all("Supplier" in x for x in r["lineas"]))
+        sin_control = C.comparar(ANTES.encode("utf-8"), DESPUES.encode("utf-8"))
+        self.assertNotIn("Control: líneas no tocadas", sin_control["resumen"])
+
     def test_costo_cambia_y_venta_igual(self):
         despues = DESPUES.replace("81.65,0.00,0.00", "81.65,99.30,99.30", 1)             # la primera línea conserva la venta
         r = C.comparar(ANTES.encode("utf-8"), despues.encode("utf-8"))
