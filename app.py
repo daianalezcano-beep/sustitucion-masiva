@@ -102,7 +102,8 @@ header[data-testid="stHeader"], [data-testid="stToolbar"] { background: transpar
     min-height: 0 !important; }
 .block-container, [data-testid="stMainBlockContainer"], [data-testid="stMain"],
 [data-testid="stAppViewContainer"] > section { padding-top: 0 !important; }
-.block-container, [data-testid="stMainBlockContainer"] { padding-bottom: 1rem !important; }
+/* Espacio al final: si la ventana del navegador queda parcialmente tapada (barra de tareas), todavía se puede bajar hasta lo último. */
+.block-container, [data-testid="stMainBlockContainer"] { padding-bottom: 12rem !important; }
 [data-testid="stElementContainer"]:has(style) { display: none !important; }   /* este bloque <style> no deja renglón vacío */
 .sd-subtitulo { font-size: 0.95rem; color: #6b7280; margin-top: -0.9rem; margin-bottom: 0.6rem; }
 </style>
