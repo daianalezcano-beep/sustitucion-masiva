@@ -225,8 +225,12 @@ def render_en_vivo(estado):
 
     if estado["running"]:
         minutos = int((time.time() - (estado["inicio"] or time.time())) // 60)
-        st.info(f"🟢 En curso ({'APLICAR' if estado['modo'] == 'aplicar' else 'lectura'}) · {minutos} min · "
+        hechas, total = _progreso(estado["log_lines"])
+        avance = f" · combinación {min(hechas, total)} de {total}" if total else ""
+        st.info(f"🟢 En curso ({'APLICAR' if estado['modo'] == 'aplicar' else 'lectura'}) · {minutos} min{avance} · "
                 "no toques la ventana de Chrome.")
+        if total:
+            st.progress(min(max(hechas - 1, 0), total) / total)      # la combinación en curso todavía no cuenta como terminada
         pregunta = E.confirmacion_pendiente(estado["run_dir"]) if estado["run_dir"] else None
         if pregunta:
             st.warning("⏸️ **El script espera tu confirmación antes de mover las reservas en Tourplan (ida; la vuelta va sola).**")
@@ -259,7 +263,24 @@ def render_en_vivo(estado):
 
 # ── Estado de la cola ───────────────────────────────────────────────────────
 
+def _progreso(lineas):
+    """(combinaciones empezadas, total) leyendo la consola del script: 'Filas PENDIENTE a procesar: N' y una línea 'Fila n: ...'
+    por cada combinación que arranca. (0, 0) si todavía no se sabe."""
+    total, hechas = 0, 0
+    for linea in lineas:
+        m = re.search(r"Filas PENDIENTE a procesar: (\d+)", linea)
+        if m:
+            total = int(m.group(1))
+        elif re.search(r"\] Fila \d+: ", linea) or linea.startswith("Fila "):
+            hechas += 1
+    return hechas, total
+
+
 def render_cola(estado, sheet_url):
+    # Mientras corre, este panel se refresca solo (ver main): se vuelve a leer la hoja cada ~10 s.
+    if estado["running"] and sheet_url and time.time() - estado.get("ultimo_conteo", 0) >= 8:
+        _refrescar_conteo(estado, sheet_url)
+        estado["ultimo_conteo"] = time.time()
     c1, c2 = st.columns([4, 1])
     c1.subheader("Cola de trabajo")
     if c2.button("🔄 Refrescar", disabled=estado["running"] or not sheet_url, use_container_width=True, key="refrescar"):
@@ -374,7 +395,7 @@ def main():
     st.title("Actualización de costos")
     st.markdown('<div class="sd-subtitulo">mediante sustitución de servicios</div>', unsafe_allow_html=True)
 
-    render_cola(estado, _sheet_url_guardada())
+    st.fragment(run_every=10 if estado["running"] else None)(render_cola)(estado, _sheet_url_guardada())
 
     with st.expander("⚙️ Configuración (usuario de Tourplan, Sheet)", expanded=not user_config.tp_credenciales_default()[0]):
         render_configuracion()

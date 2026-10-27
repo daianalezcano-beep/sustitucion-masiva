@@ -127,6 +127,23 @@ class App(unittest.TestCase):
         self.assertEqual({m.label: m.value for m in at.metric},
                          {"Pendiente": "2", "OK": "1", "Error": "1", "Duplicado": "0", "Otro": "0"})
 
+    def test_mientras_corre_la_cola_se_refresca_sola_y_se_ve_el_avance(self):
+        self.configurar()
+        filas = [{"ESTADO": "PENDIENTE"}, {"ESTADO": "OK"}, {"ESTADO": "OK"}]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_corrida"] = {
+            "running": True, "finished": False, "returncode": None, "proc": None, "stop_file": None, "run_dir": Path(tempfile.mkdtemp()),
+            "abort_pedido": False, "modo": "aplicar", "inicio": 0, "mensaje": None, "conteo": {"Pendiente": 3, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
+            "conteo_error": None,
+            "log_lines": ["[10:00:00] Filas PENDIENTE a procesar: 3\n", "[10:00:01] Fila 2: BUE/A/GU/X\n", "[10:01:00] Fila 3: BUE/A/GU/Y\n"]}
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO"])):
+            at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual({m.label: m.value for m in at.metric}["OK"], "2")                 # leyó la hoja sin tocar Refrescar
+        self.assertTrue(any("combinación 2 de 3" in i.value for i in at.info))
+        self.assertTrue(self.boton(at, "Refrescar").disabled)
+
     def test_renderiza_y_sin_configurar_no_se_puede_ejecutar(self):
         at = self.app()
         self.assertFalse(at.exception)
