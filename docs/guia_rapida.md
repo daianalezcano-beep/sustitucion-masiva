@@ -5,7 +5,9 @@ temporal (`000000`) y las devuelve a su servicio original. Tourplan recalcula el
 cancelados no entran en la corrida.
 
 ## Antes de empezar
-1. En la hoja de Google (pestaña `SUBSTITUTE`) cargá una línea por combinación: `LOCATION`, `SUPPLIER`, `SERVICE TYPE` y `CODIGO`, con `ESTADO` = `PENDIENTE`.
+1. Cargá las combinaciones en la hoja de Google (pestaña `SUBSTITUTE`): a mano (`LOCATION`, `SUPPLIER`, `SERVICE TYPE`, `CODIGO` y `ESTADO` = `PENDIENTE`) o,
+   más simple, desde la app: exportá de Tourplan el reporte **Service Status**, abrí **📥 Cargar combinaciones desde un reporte**, subí el CSV, tocá **Analizar
+   reporte**, revisá la vista previa y **Confirmar**.
 2. Exportá de Tourplan el reporte **Product Analysis "antes"** en CSV.
 3. La primera vez, abrí **⚙️ Configuración** y cargá el usuario y la clave de Tourplan y el enlace de la hoja.
 

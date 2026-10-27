@@ -144,6 +144,14 @@ class App(unittest.TestCase):
         self.assertTrue(any("combinación 2 de 3" in i.value for i in at.info))
         self.assertTrue(self.boton(at, "Refrescar").disabled)
 
+    def test_cargar_desde_reporte_esta_disponible_y_no_analiza_sin_archivo(self):
+        self.configurar()
+        at = self.app()
+        self.assertFalse(at.exception)
+        self.assertIn("📥 Cargar combinaciones desde un reporte de Tourplan (Service Status)", [e.label for e in at.expander])
+        self.assertTrue(self.boton(at, "Analizar reporte").disabled)           # sin archivo no se puede analizar
+        self.assertFalse(any("Confirmar: cargar" in b.label for b in at.button))   # y nada se carga sin confirmar
+
     def test_renderiza_y_sin_configurar_no_se_puede_ejecutar(self):
         at = self.app()
         self.assertFalse(at.exception)

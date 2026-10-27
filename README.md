@@ -25,6 +25,13 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
   31/12/2049), URL de Tourplan, "solo la fila nº" para probar una combinación.
 - **Modo aplicar:** la app ya no pide confirmación manual (se quitó el checkbox): las verificaciones del script (provisorio libre antes y después, foto original vs. final) la reemplazan. Con `TOURPLAN_CONFIRMAR_OK=1` (solo desde la consola) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
   **Continuar / Cancelar** (y la captura del modal). La vuelta se hace sola: frenar entre ida y vuelta dejaría reservas en el provisorio.
+- **Cargar combinaciones desde un reporte de Tourplan:** desplegable en la app. Se sube el reporte **Service Status** (CSV); la app saca los servicios
+  cancelados (`CX`), deja una línea por combinación (Location + Supplier + Service Type + Option), descarta las que no tienen provisorio o ya están en la
+  hoja, y muestra una vista previa (combinaciones, reservas, tiempo estimado, rango de fechas). **Solo al confirmar** las agrega a `SUBSTITUTE` como
+  `PENDIENTE` (ordenadas por Location, Service Type, Supplier y código, para que el script recargue lo mínimo); después se ejecuta como siempre.
+  Lógica en `common/reporte_entrada.py`.
+- **Cola de trabajo:** mientras corre se vuelve a leer la hoja cada ~10 s y se muestra el avance (`combinación k de N`). En modo lectura las filas
+  siguen `PENDIENTE` por diseño (solo cambian los errores), así que el contador no se mueve: el avance se ve en la barra.
 - **Comparar reportes antes / después:** desplegable al final de la app. Se suben los dos reportes Product Analysis (CSV, exportados con las mismas
   opciones), se toca **Comparar** y muestra por línea cuánto cambió el costo y si cambió la venta (Retail / Agent), con las líneas con venta modificada
   primero y un CSV descargable. Lógica en `common/comparador.py` (acepta `;` o `,` y fechas `21-oct-26` o `21-Oct-2026`; no guarda los archivos).

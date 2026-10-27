@@ -25,8 +25,11 @@ from pathlib import Path
 import streamlit as st
 
 from common import comparador
+from common import logica as L
+from common import reporte_entrada
 from common import ejecucion as E
 from common import user_config
+from common.sheets_batch import agregar_filas_batch, asegurar_columnas_tolerante
 from common.sheets_client import cargar_sheet, conectar_sheets
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -344,6 +347,100 @@ def render_historial(estado):
                                      icon=":material/download:", key=f"hist_{c['carpeta'].name}", use_container_width=True)
 
 
+# ── Cargar combinaciones desde un reporte de Tourplan ───────────────────────
+
+COLS_HOJA = ["LOCATION", "SUPPLIER", "SERVICE TYPE", "CODIGO", "ESTADO"]
+
+
+def _tabla_provisorios():
+    """Los provisorios definidos en el script (Location + Service Type -> proveedor). Se importa el script solo para leer esa tabla."""
+    ruta = str(REPO_ROOT / "scripts" / "substitute_doble")
+    if ruta not in sys.path:
+        sys.path.insert(0, ruta)
+    import substitute_doble
+    return dict(substitute_doble.PROVISORIOS)
+
+
+def _leer_hoja(sheet_url):
+    ws = conectar_sheets(sheet_url, "SUBSTITUTE", user_config.CREDENTIALS_PATH, user_config.TOKEN_PATH)
+    filas, columnas = cargar_sheet(ws)
+    filas = [L.canonizar_fila(f, COLS_HOJA) for f in filas]
+    return ws, filas
+
+
+def _analizar_reporte(contenido, sheet_url):
+    filas = reporte_entrada.leer_reporte(contenido)
+    _, en_hoja_filas = _leer_hoja(sheet_url)
+    en_hoja = {L.clave_combinacion(f): f.get("ESTADO", "") for f in en_hoja_filas}
+    plan = reporte_entrada.armar_plan(filas, _tabla_provisorios(), en_hoja=en_hoja)
+    plan["pendientes_en_hoja"] = sum(1 for f in en_hoja_filas if E.clasificar_estado(f.get("ESTADO")) == "Pendiente")
+    return plan
+
+
+def _cargar_a_la_hoja(plan, sheet_url):
+    """Agrega las combinaciones a la hoja SUBSTITUTE como PENDIENTE. Vuelve a leer la hoja justo antes para no duplicar
+    lo que otra persona haya cargado mientras tanto. Devuelve la cantidad escrita."""
+    ws, filas = _leer_hoja(sheet_url)
+    ya = {L.clave_combinacion(f) for f in filas}
+    nuevas = [f for f in reporte_entrada.filas_para_hoja(plan["a_cargar"]) if L.clave_combinacion(f) not in ya]
+    asegurar_columnas_tolerante(ws, COLS_HOJA)
+    return agregar_filas_batch(ws, ws.row_values(1), nuevas)
+
+
+def render_desde_reporte(estado):
+    with st.expander("📥 Cargar combinaciones desde un reporte de Tourplan (Service Status)"):
+        st.caption("Subí el reporte **Service Status** exportado de Tourplan. La app saca los servicios cancelados, deja una línea por combinación "
+                   "(Location + Supplier + Service Type + Option), descarta las que no se pueden procesar y te muestra el resultado. "
+                   "**Nada se carga hasta que confirmes.** Después de cargar, revisá Parámetros y tocá Ejecutar.")
+        sheet_url = _sheet_url_guardada()
+        archivo = st.file_uploader("Reporte Service Status (.csv)", type=["csv"], key="rep_entrada")
+        if st.button("Analizar reporte", disabled=not (archivo and sheet_url) or estado["running"], key="analizar_reporte"):
+            try:
+                st.session_state["_plan_reporte"] = _analizar_reporte(archivo.getvalue(), sheet_url)
+            except Exception as e:      # un archivo que no es el reporte, o un Sheet inaccesible, no debe romper la app
+                st.session_state["_plan_reporte"] = None
+                st.error(f"No pude analizar el reporte: {e}")
+        if not sheet_url:
+            st.caption("Falta la URL del Google Sheet: se carga en ⚙️ Configuración.")
+        plan = st.session_state.get("_plan_reporte")
+        if not plan:
+            return
+        r = plan["resumen"]
+        c = st.columns(5)
+        c[0].metric("Líneas del reporte", r["Líneas del reporte"])
+        c[1].metric("Excluidas (cancelados)", r["Líneas excluidas (servicio cancelado)"])
+        c[2].metric("Combinaciones a cargar", r["Combinaciones a cargar"])
+        c[3].metric("Reservas", r["Reservas a cargar"])
+        c[4].metric("Tiempo estimado", reporte_entrada.texto_duracion(r["Segundos estimados"]))
+        if r["Desde"]:
+            st.caption(f"El reporte cubre servicios del {r['Desde']:%d/%m/%Y} al {r['Hasta']:%d/%m/%Y}.")
+            desde_p, hasta_p = st.session_state.get("desde"), st.session_state.get("hasta")
+            if desde_p and hasta_p and (desde_p > r["Desde"].date() or hasta_p < r["Hasta"].date()):
+                st.warning(f"En Parámetros, Servicios desde/hasta ({desde_p:%d/%m/%Y} – {hasta_p:%d/%m/%Y}) no cubren todo el rango del reporte: "
+                           "esas reservas quedarían sin procesar.")
+        if plan.get("pendientes_en_hoja"):
+            st.warning(f"La hoja ya tiene {plan['pendientes_en_hoja']} fila(s) PENDIENTE: al ejecutar se van a procesar junto con las que cargues ahora.")
+        if r["Líneas incompletas"]:
+            st.warning(f"{r['Líneas incompletas']} línea(s) del reporte tienen Location, Supplier, Service u Option vacíos y se ignoraron.")
+        if plan["a_cargar"]:
+            st.markdown(f"**A cargar** ({len(plan['a_cargar'])})")
+            st.dataframe([{k: v for k, v in c_.items() if k != "N_ESTADOS"} for c_ in plan["a_cargar"]], hide_index=True, use_container_width=True)
+        if plan["descartadas"]:
+            st.markdown(f"**Descartadas** ({len(plan['descartadas'])})")
+            st.dataframe([{k: v for k, v in c_.items() if k != "N_ESTADOS"} for c_ in plan["descartadas"]], hide_index=True, use_container_width=True)
+        if not plan["a_cargar"]:
+            st.info("No hay combinaciones nuevas para cargar.")
+        elif st.button(f"✅ Confirmar: cargar {len(plan['a_cargar'])} combinación(es) al Sheet como PENDIENTE", type="primary",
+                       disabled=estado["running"], key="confirmar_carga"):
+            try:
+                n = _cargar_a_la_hoja(plan, sheet_url)
+                st.session_state["_plan_reporte"] = None
+                _refrescar_conteo(estado, sheet_url)
+                st.success(f"Se cargaron {n} combinación(es) a la hoja SUBSTITUTE como PENDIENTE. Revisá Parámetros y tocá Ejecutar.")
+            except Exception as e:
+                st.error(f"No pude escribir en el Sheet: {e}")
+
+
 # ── Comparador de reportes ──────────────────────────────────────────────────
 
 def render_comparador():
@@ -430,6 +527,7 @@ def main():
     run_every = 1 if estado["running"] else None
     st.fragment(run_every=run_every)(render_en_vivo)(estado)
     render_historial(estado)
+    render_desde_reporte(estado)
     render_comparador()
 
 
