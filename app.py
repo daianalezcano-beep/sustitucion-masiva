@@ -484,17 +484,22 @@ def render_comparador():
                 st.warning(f"La venta no cambió, pero {r['Solo en uno de los dos']} línea(s) aparecen en un solo reporte.")
             else:
                 st.success("La venta no cambió en ninguna línea.")
-        cols = st.columns(len(r))
-        for col, (nombre, n) in zip(cols, r.items()):
-            col.metric(nombre, n)
-        orden = ("Venta modificada", "Solo antes", "Solo después", "Otros cambios", "Costo cambió", "Sin cambios")
-        for estado in orden:
-            filas = [x for x in res["lineas"] if x["Resultado"] == estado]
-            if filas and estado != "Sin cambios":
-                st.markdown(f"**{estado}** ({len(filas)})")
-                st.dataframe(filas, hide_index=True, use_container_width=True)
-        st.download_button("Descargar comparación (CSV)", data=comparador.a_csv(res["lineas"]), file_name="comparacion_reportes.csv",
+        # La descarga va arriba, antes de las tablas largas: así está a mano aunque la página sea alta o se corte la ventana.
+        st.download_button("Descargar comparación completa (CSV)", data=comparador.a_csv(res["lineas"]), file_name="comparacion_reportes.csv",
                            mime="text/csv", icon=":material/download:", key="descargar_comparacion")
+        try:
+            filas_m = list(r.items())
+            for i in range(0, len(filas_m), 5):          # métricas en filas de 5 (no todas en una sola fila)
+                for col, (nombre, n) in zip(st.columns(5), filas_m[i:i + 5]):
+                    col.metric(nombre, n)
+            orden = ("Venta modificada", "Solo antes", "Solo después", "Otros cambios", "Costo cambió", "Sin cambios")
+            for estado in orden:
+                filas = [x for x in res["lineas"] if x["Resultado"] == estado]
+                if filas and estado != "Sin cambios":
+                    st.markdown(f"**{estado}** ({len(filas)})")
+                    st.dataframe(filas, hide_index=True, use_container_width=True)
+        except Exception as e:      # si algo falla al dibujar las tablas, se dice qué (y la descarga de arriba sigue sirviendo)
+            st.error(f"No pude mostrar las tablas: {type(e).__name__}: {e}")
 
 
 # ── Página ──────────────────────────────────────────────────────────────────
