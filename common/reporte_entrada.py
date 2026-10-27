@@ -10,6 +10,7 @@ Columnas del reporte (el primer "Status" es el estado del servicio y el segundo 
 Service (= Service Type), Location, Option (= Product Code), Reference, Status (2)...
 """
 
+import unicodedata
 from collections import Counter
 
 from common import comparador as C
@@ -17,6 +18,8 @@ from common import logica as L
 
 COLUMNAS_REQUERIDAS = ("Status", "Supplier", "Service Date", "Service", "Location", "Option", "Reference")
 ESTADOS_EXCLUIDOS = ("CX",)        # servicios cancelados: Tourplan no permite sustituirlos
+# Proveedores "por asignar" (ej. GUIAPO, "Guia por Asignar"): no se procesan, porque el costo correcto se carga cuando se asigna el proveedor real.
+PROVEEDORES_POR_ASIGNAR = ("GUIAPO",)
 # Estimación de tiempo (medida en producción, 2026-10-20): segundos fijos de la corrida, por combinación, por reserva y por estado extra.
 SEG_FIJOS, SEG_COMBINACION, SEG_RESERVA, SEG_ESTADO_EXTRA = 75, 22, 1.5, 12
 
@@ -36,6 +39,12 @@ def _n(v):
     return str(v or "").strip().upper()
 
 
+def es_por_asignar(f):
+    """Línea cuyo proveedor es un 'por asignar': por código (PROVEEDORES_POR_ASIGNAR) o porque SupplierName dice 'por asignar'."""
+    nombre = unicodedata.normalize("NFKD", str(f.get("SupplierName") or "")).encode("ascii", "ignore").decode().upper()
+    return _n(f.get("Supplier")) in PROVEEDORES_POR_ASIGNAR or "POR ASIGNAR" in nombre
+
+
 def segundos_estimados(combinaciones):
     """combinaciones: lista de dicts con 'RESERVAS' y 'N_ESTADOS'. Estimación, no medición."""
     total = SEG_FIJOS if combinaciones else 0
@@ -49,12 +58,15 @@ def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLU
     SERVICE TYPE, CODIGO): ESTADO} de lo que ya está en la hoja SUBSTITUTE. Devuelve {'resumen', 'a_cargar', 'descartadas'}."""
     en_hoja = {tuple(_n(x) for x in k): v for k, v in (en_hoja or {}).items()}
     excluidos = {_n(e) for e in estados_excluidos}
-    lineas_excluidas, incompletas, grupos = Counter(), 0, {}
+    lineas_excluidas, incompletas, por_asignar, grupos = Counter(), 0, 0, {}
     for f in filas:
         clave = (_n(f.get("Location")), _n(f.get("Supplier")), _n(f.get("Service")), _n(f.get("Option")))
         estado = _n(f.get("Status"))
         if estado in excluidos:
             lineas_excluidas[estado] += 1
+            continue
+        if es_por_asignar(f):
+            por_asignar += 1
             continue
         if not all(clave):
             incompletas += 1
@@ -83,6 +95,7 @@ def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLU
     resumen = {
         "Líneas del reporte": len(filas),
         "Líneas excluidas (servicio cancelado)": sum(lineas_excluidas.values()),
+        "Líneas excluidas (proveedor por asignar)": por_asignar,
         "Líneas incompletas": incompletas,
         "Combinaciones a cargar": len(a_cargar),
         "Reservas a cargar": sum(c["RESERVAS"] for c in a_cargar),

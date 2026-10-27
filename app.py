@@ -406,12 +406,13 @@ def render_desde_reporte(estado):
         if not plan:
             return
         r = plan["resumen"]
-        c = st.columns(5)
+        c = st.columns(6)
         c[0].metric("Líneas del reporte", r["Líneas del reporte"])
         c[1].metric("Excluidas (cancelados)", r["Líneas excluidas (servicio cancelado)"])
-        c[2].metric("Combinaciones a cargar", r["Combinaciones a cargar"])
-        c[3].metric("Reservas", r["Reservas a cargar"])
-        c[4].metric("Tiempo estimado", reporte_entrada.texto_duracion(r["Segundos estimados"]))
+        c[2].metric("Excluidas (por asignar)", r["Líneas excluidas (proveedor por asignar)"])
+        c[3].metric("Combinaciones a cargar", r["Combinaciones a cargar"])
+        c[4].metric("Reservas", r["Reservas a cargar"])
+        c[5].metric("Tiempo estimado", reporte_entrada.texto_duracion(r["Segundos estimados"]))
         if r["Desde"]:
             st.caption(f"El reporte cubre servicios del {r['Desde']:%d/%m/%Y} al {r['Hasta']:%d/%m/%Y}.")
             desde_p, hasta_p = st.session_state.get("desde"), st.session_state.get("hasta")
@@ -465,6 +466,10 @@ def render_comparador():
             return
         if r["Venta modificada"]:
             st.error(f"⚠️ La venta (Retail / Agent) cambió en {r['Venta modificada']} línea(s). Revisalas antes de seguir.")
+            if res.get("variaciones_venta"):
+                st.caption("Variaciones del Retail más comunes: " + "; ".join(
+                    f"{v['Δ Retail %']:+.2f} % en {v['Líneas']} línea(s) ({v['Moneda'] or 'sin moneda'})" for v in res["variaciones_venta"][:5])
+                    + ". Si casi todas coinciden en el mismo porcentaje, suele ser un factor común (por ejemplo, el tipo de cambio).")
         elif r["Solo en uno de los dos"]:
             st.warning(f"La venta no cambió, pero {r['Solo en uno de los dos']} línea(s) aparecen en un solo reporte.")
         else:

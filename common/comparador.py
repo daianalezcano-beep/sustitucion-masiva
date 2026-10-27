@@ -10,6 +10,7 @@ segunda se toma como el precio.
 import csv
 import io
 import re
+from collections import Counter
 from datetime import datetime
 
 TOLERANCIA = 0.005
@@ -129,7 +130,11 @@ def comparar(antes, despues):
         "Solo en uno de los dos": cuenta("Solo antes") + cuenta("Solo después"),
         "Sin cambios": cuenta("Sin cambios"),
     }
-    return {"resumen": resumen, "lineas": lineas}
+    # Variaciones de la venta (Retail) más comunes: si casi todas las líneas cambiaron en el mismo porcentaje, apunta a un factor común
+    # (por ejemplo un cambio de tipo de cambio) y no a algo propio de cada reserva.
+    variaciones = Counter((x["Δ Retail %"], x["Moneda"]) for x in lineas if x["Resultado"] == "Venta modificada" and x["Δ Retail %"] is not None)
+    return {"resumen": resumen, "lineas": lineas,
+            "variaciones_venta": [{"Δ Retail %": p, "Moneda": m, "Líneas": n} for (p, m), n in variaciones.most_common(8)]}
 
 
 def _linea(f, g):
@@ -138,8 +143,9 @@ def _linea(f, g):
            "Service": base.get("Service", ""), "Option": base.get("Option", ""), "Description": base.get("Description", ""),
            "Fecha": (fecha(base.get("Date", "")) or datetime.min).strftime("%d/%m/%Y") if fecha(base.get("Date", "")) else base.get("Date", "")}
     if f is None or g is None:
-        out.update({"Costo antes": None, "Costo después": None, "Δ Costo": None, "Δ %": None, "Retail antes": None,
-                    "Retail después": None, "Agent antes": None, "Agent después": None,
+        out.update({"Moneda": base.get("Currency", ""), "Costo antes": None, "Costo después": None, "Δ Costo": None, "Δ %": None,
+                    "Retail antes": None, "Retail después": None, "Δ Retail %": None, "Agent antes": None, "Agent después": None,
+                    "Δ Agent %": None,
                     "Resultado": "Solo antes" if g is None else "Solo después", "Detalle": "no aparece en el otro reporte"})
         return out
     c0, c1 = numero(f.get("Cost")), numero(g.get("Cost"))
@@ -150,9 +156,10 @@ def _linea(f, g):
     costo = not _igual_num(c0, c1)
     delta = (c1 - c0) if c0 is not None and c1 is not None else None
     pct = (delta / c0 * 100) if delta is not None and c0 else None
-    out.update({"Costo antes": c0, "Costo después": c1, "Δ Costo": None if delta is None else round(delta, 2),
-                "Δ %": None if pct is None else round(pct, 1), "Retail antes": r0, "Retail después": r1,
-                "Agent antes": a0, "Agent después": a1})
+    pct_v = lambda a, b: round((b - a) / a * 100, 2) if a and b is not None else None
+    out.update({"Moneda": g.get("Currency", ""), "Costo antes": c0, "Costo después": c1, "Δ Costo": None if delta is None else round(delta, 2),
+                "Δ %": None if pct is None else round(pct, 1), "Retail antes": r0, "Retail después": r1, "Δ Retail %": pct_v(r0, r1),
+                "Agent antes": a0, "Agent después": a1, "Δ Agent %": pct_v(a0, a1)})
     out["Resultado"] = ("Venta modificada" if venta else "Otros cambios" if otros else "Costo cambió" if costo else "Sin cambios")
     out["Detalle"] = "; ".join(([f"venta: Retail {r0} → {r1}, Agent {a0} → {a1}"] if venta else []) + otros)
     return out

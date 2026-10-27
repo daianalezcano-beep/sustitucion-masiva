@@ -38,8 +38,9 @@ class ReporteEntrada(unittest.TestCase):
         p = self.plan()
         r = p["resumen"]
         self.assertEqual((r["Líneas del reporte"], r["Líneas excluidas (servicio cancelado)"]), (8, 2))
-        self.assertEqual([(c["SUPPLIER"], c["CODIGO"], c["RESERVAS"]) for c in p["a_cargar"]], [("1SANC9", "CT3ID", 3), ("GUIAPO", "EZHTID", 1)])
-        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (2, 4))
+        self.assertEqual(r["Líneas excluidas (proveedor por asignar)"], 1)                         # GUIAPO / "por asignar"
+        self.assertEqual([(c["SUPPLIER"], c["CODIGO"], c["RESERVAS"]) for c in p["a_cargar"]], [("1SANC9", "CT3ID", 3)])
+        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (1, 3))
         self.assertEqual(p["a_cargar"][0]["ESTADOS"], "IT 1, OT 2")
         self.assertEqual((p["a_cargar"][0]["DESDE"], p["a_cargar"][0]["HASTA"]), ("29/10/2026", "31/10/2026"))
 
@@ -48,6 +49,11 @@ class ReporteEntrada(unittest.TestCase):
         self.assertIn("Sin provisorio definido para MDZ/GU", motivos[("MDZ", "AEHTID")])
         self.assertIn("Ya está en la hoja (estado: OK)", motivos[("BUE", "CT4ID")])
         self.assertEqual(len(motivos), 2)
+
+    def test_excluye_por_nombre_aunque_el_codigo_sea_otro(self):
+        csv = (CAB + "\nOT,XYZ1,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Guía POR ASIGNAR\n").encode("utf-8")
+        p = R.armar_plan(R.leer_reporte(csv), PROV)
+        self.assertEqual((p["resumen"]["Líneas excluidas (proveedor por asignar)"], len(p["a_cargar"])), (1, 0))
 
     def test_orden_por_location_service_supplier_code(self):
         filas = R.leer_reporte(CSV)
@@ -58,8 +64,8 @@ class ReporteEntrada(unittest.TestCase):
         p = self.plan()
         hoja = R.filas_para_hoja(p["a_cargar"])
         self.assertEqual(hoja[0], {"LOCATION": "BUE", "SUPPLIER": "1SANC9", "SERVICE TYPE": "GU", "CODIGO": "CT3ID", "ESTADO": "PENDIENTE"})
-        # 75 fijos + (22 + 1.5*3 + 12*1) + (22 + 1.5*1)
-        self.assertEqual(p["resumen"]["Segundos estimados"], int(75 + 22 + 4.5 + 12 + 22 + 1.5))
+        # 75 fijos + (22 + 1.5*3 + 12*1)
+        self.assertEqual(p["resumen"]["Segundos estimados"], int(75 + 22 + 4.5 + 12))
         self.assertEqual(R.segundos_estimados([]), 0)
         self.assertEqual((R.texto_duracion(90), R.texto_duracion(9000)), ("2 min", "2 h 30 min"))
 
@@ -68,7 +74,9 @@ class ReporteEntrada(unittest.TestCase):
         p = R.armar_plan(R.leer_reporte(open(REAL, "rb").read()), PROV)
         r = p["resumen"]
         self.assertEqual((r["Líneas del reporte"], r["Líneas excluidas (servicio cancelado)"]), (1595, 202))
-        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (306, 1393))
+        self.assertEqual(r["Líneas excluidas (proveedor por asignar)"], 628)
+        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (276, 765))       # lo que procesó la corrida real del 27/10
+        self.assertTrue(all(c["SUPPLIER"] != "GUIAPO" for c in p["a_cargar"]))
         self.assertEqual(r["Desde"].strftime("%d/%m/%Y"), "28/10/2026")
 
 

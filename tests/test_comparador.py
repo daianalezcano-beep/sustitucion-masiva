@@ -44,6 +44,15 @@ class Comparador(unittest.TestCase):
         self.assertEqual((dsid["Costo antes"], dsid["Costo después"], dsid["Δ Costo"], dsid["Δ %"]), (115.38, 129.95, 14.57, 12.6))
         self.assertEqual((dsid["Retail antes"], dsid["Retail después"], dsid["Agent antes"], dsid["Agent después"]), (224.83, 0.0, 179.86, 0.0))
         self.assertIn("venta", dsid["Detalle"])
+        self.assertEqual((dsid["Δ Retail %"], dsid["Δ Agent %"], dsid["Moneda"]), (-100.0, -100.0, "USD"))
+        self.assertEqual(r["variaciones_venta"][0], {"Δ Retail %": -100.0, "Moneda": "USD", "Líneas": 4})
+
+    def test_variacion_comun_de_la_venta(self):
+        # todas las líneas suben 5 %: típico de un cambio de tipo de cambio
+        despues = DESPUES.replace("0.00,0.00,EAGP246321", "104.27,104.27,EAGP246321").replace("0.00,0.00,EAGP246528", "181.72,226.62,EAGP246528")
+        r = C.comparar(ANTES.encode("utf-8"), despues.encode("utf-8"))
+        self.assertTrue(r["variaciones_venta"])
+        self.assertTrue(all("Líneas" in v and "Δ Retail %" in v for v in r["variaciones_venta"]))
 
     def test_costo_cambia_y_venta_igual(self):
         despues = DESPUES.replace("81.65,0.00,0.00", "81.65,99.30,99.30", 1)             # la primera línea conserva la venta
