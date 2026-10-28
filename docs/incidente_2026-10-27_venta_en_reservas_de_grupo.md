@@ -41,6 +41,12 @@ Lo que modificó, comparando PRE y POST:
 ## 4. Causa (hipótesis, sin confirmar)
 - En reservas de grupo (estado `KK`) el precio de venta parece calcularse con reglas distintas (precio de grupo / markup a nivel reserva), y **Retain Sell Price no lo conserva**. No se
   confirmó con Tourplan ni se miró el precio a nivel de la reserva de grupo (si el total de venta del grupo se perdió realmente o solo el valor por línea).
+- **Hipótesis de la usuaria (observada en pruebas manuales, a confirmar):** en las reservas de grupo, al sustituir hacia el provisorio `000000` (valores en cero, sin tarifas) la venta se
+  actualiza a 0 **en la ida**; en la vuelta, Retain Sell Price conserva lo que hay en ese momento (0) y la venta ya no se recupera. En las reservas individuales sí se retiene.
+  Es consistente con lo observado en producción: en una reserva individual, tras la ida, el costo pasó a 0 y el Retail, el Agent y la comisión se mantuvieron. Lo que falta explicar es
+  por qué los individuales retienen y los grupos no (por ejemplo, venta fijada por línea vs. calculada desde el costo o reglas del grupo).
+- Pruebas propuestas para confirmarla (en una reserva de grupo que se pueda tocar): (1) solo la ida, y mirar Retail/Agent antes de la vuelta; (2) ida a un option real con venta distinta de cero,
+  para ver si la venta pasa a ser la de ese option; (3) vuelta con Retain Sell Price destildado, para ver si se recalcula con la tarifa del option original (no tiene por qué coincidir con el valor negociado).
 - El Agent de las reservas individuales cambia levemente: coherente con que se recalcule con la comisión vigente mientras el Retail se retiene.
 
 ## 5. Por qué los controles no lo detectaron
@@ -76,6 +82,7 @@ Descartes aplicados: 13 líneas con cambio de pax entre reportes, 2 de redondeo 
 | E | **Restaurar la venta desde la herramienta** tras la vuelta | Corrige solo, sin intervención | Depende de poder editar precios por línea desde la UI; alto esfuerzo y riesgo; no sabemos si es posible |
 | F | **Usar otra función de Tourplan para recalcular costos** (por ejemplo "Recalculate Bookings", si conserva la venta) en lugar de la doble sustitución | Evita el problema de raíz si existe | Sin verificar qué hace con la venta; cambia el diseño |
 | G | **Consultar a Tourplan** (soporte): por qué Retain Sell Price no conserva la venta en reservas de grupo y si hay configuración o forma de hacerlo | Puede dar la solución definitiva | Tiempo de respuesta; incertidumbre |
+| I | **Camino distinto para grupos**: vuelta sin Retain Sell Price (si la prueba 3 muestra que se recalcula bien) o capturar los valores "antes" y restaurarlos | Puede permitir actualizar costos también en grupos | El valor recalculado puede no coincidir con el negociado; restaurar exige editar precios por línea; hay que probarlo |
 | H | Validar en la herramienta el **estado de reserva** de cada línea antes de procesarla (leerlo del listado) y rechazar los no permitidos | Cubre cualquier lista de estados | Hay que confirmar que el listado lo trae; desarrollo |
 
 **Recomendación:** A de inmediato (para no repetir el daño), G en paralelo (confirma la causa y si existe un camino para los grupos), C como práctica obligatoria antes de cada lote nuevo y
