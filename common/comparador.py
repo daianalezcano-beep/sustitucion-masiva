@@ -120,6 +120,14 @@ def comparar(antes, despues, no_tocada=None):
     for lista in grupos_post.values():
         for g in lista:
             lineas.append(_linea(None, g, no_tocada))
+    # Líneas con la misma Reference + Supplier + Option + fecha: se numeran ("1 de 2") para poder distinguirlas una por una.
+    por_clave = {}
+    for x in lineas:
+        por_clave.setdefault((x["Reference"], x["Supplier"], x["Option"], x["Fecha"]), []).append(x)
+    for grupo_ in por_clave.values():
+        grupo_.sort(key=lambda x: (str(x["Voucher"]), x["Retail antes"] or 0, x["Agent antes"] or 0, x["Costo antes"] or 0))
+        for n, x in enumerate(grupo_, 1):
+            x["Línea con esta clave"] = f"{n} de {len(grupo_)}" if len(grupo_) > 1 else "única"
     orden = {"Venta modificada": 0, "Solo antes": 1, "Solo después": 1, "Otros cambios": 2, "Costo cambió": 3, "Sin cambios": 4}
     lineas.sort(key=lambda x: (orden[x["Resultado"]], x["Reference"], x["Option"], x["Fecha"]))
     cuenta = lambda r: sum(1 for x in lineas if x["Resultado"] == r)
@@ -146,7 +154,7 @@ def comparar(antes, despues, no_tocada=None):
 def _linea(f, g, no_tocada=None):
     base = f or g
     out = {"Grupo": "No tocada" if no_tocada and no_tocada(base) else "Sustituida", "Supplier": base.get("Supplier", ""),
-           "Reference": base.get("Reference", ""), "Booking": base.get("BookingName", ""), "Loc": base.get("Loc", ""),
+           "Reference": base.get("Reference", ""), "Voucher": base.get("VoucherNo", ""), "Pax": base.get("Pax", ""), "Qty": base.get("Qty", ""), "Booking": base.get("BookingName", ""), "Loc": base.get("Loc", ""),
            "Service": base.get("Service", ""), "Option": base.get("Option", ""), "Description": base.get("Description", ""),
            "Fecha": (fecha(base.get("Date", "")) or datetime.min).strftime("%d/%m/%Y") if fecha(base.get("Date", "")) else base.get("Date", "")}
     if f is None or g is None:

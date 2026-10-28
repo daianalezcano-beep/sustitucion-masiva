@@ -63,6 +63,15 @@ class Comparador(unittest.TestCase):
         sin_control = C.comparar(ANTES.encode("utf-8"), DESPUES.encode("utf-8"))
         self.assertNotIn("Control: líneas no tocadas", sin_control["resumen"])
 
+    def test_lineas_repetidas_se_numeran_y_traen_voucher(self):
+        extra = "RIV1;Riviera Travel;1FAGA1;Facio, Graciela (Guia);BUE;GU;DSID;Dinner Show;;26-oct-26;40;0;1;40;1;1;USD;100.00;150.00;200.00;EAGP246528;SOUTH;;KK;25-oct-26;2,525,151;EN;SE;;;;;LSR;Luciana\n"
+        r = C.comparar((ANTES + extra).encode("utf-8"), (DESPUES + extra.replace(";", ",").replace("2,525,151", '"2,525,151"')).encode("utf-8"))
+        dsid = [x for x in r["lineas"] if x["Option"] == "DSID"]
+        self.assertEqual(sorted(x["Línea con esta clave"] for x in dsid), ["1 de 2", "2 de 2"])
+        self.assertEqual({x["Voucher"] for x in dsid}, {"2,525,150", "2,525,151"})
+        self.assertEqual(next(x for x in r["lineas"] if x["Option"] == "CT4ID")["Línea con esta clave"], "única")
+        self.assertIn("Pax", dsid[0])
+
     def test_costo_cambia_y_venta_igual(self):
         despues = DESPUES.replace("81.65,0.00,0.00", "81.65,99.30,99.30", 1)             # la primera línea conserva la venta
         r = C.comparar(ANTES.encode("utf-8"), despues.encode("utf-8"))
