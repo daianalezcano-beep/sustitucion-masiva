@@ -72,6 +72,24 @@ class Comparador(unittest.TestCase):
         self.assertEqual(next(x for x in r["lineas"] if x["Option"] == "CT4ID")["Línea con esta clave"], "única")
         self.assertIn("Pax", dsid[0])
 
+    def test_lineas_repetidas_se_emparejan_por_voucher_aunque_cambie_el_orden(self):
+        cab = CAB
+        fila = lambda voucher, cost, agent, retail: (f"RIV1,Riviera Travel,1FAGA1,Facio,BUE,GU,DSID,Dinner Show,,26-Oct-2026,40,0,1,40,1,1,USD,{cost},{agent},{retail},"
+                                                      f"EAGP1,SOUTH,,KK,25-Oct-2026,\"{voucher}\",EN,SE,,,,,LSR,Luciana\n")
+        antes = cab + "\n" + fila("2,525,150", 100, 150, 200) + fila("2,525,151", 80, 120, 160)
+        despues = cab + "\n" + fila("2,525,151", 90, 120, 160) + fila("2,525,150", 110, 150, 200)      # orden invertido
+        r = C.comparar(antes.encode("utf-8"), despues.encode("utf-8"))
+        self.assertEqual(r["resumen"]["Venta modificada"], 0)                                          # sin falsos cruces
+        self.assertEqual({x["Voucher"]: x["Costo después"] for x in r["lineas"]}, {"2,525,150": 110.0, "2,525,151": 90.0})
+
+    def test_si_cambia_el_pax_la_linea_se_compara_igual(self):
+        antes = ANTES.encode("utf-8")
+        despues = DESPUES.replace(",DSID,Dinner Show,,26-Oct-2026,40,0,1,40", ",DSID,Dinner Show,,26-Oct-2026,39,0,1,39").encode("utf-8")
+        r = C.comparar(antes, despues)
+        self.assertEqual(r["resumen"]["Solo en uno de los dos"], 0)
+        dsid = next(x for x in r["lineas"] if x["Option"] == "DSID")
+        self.assertIn("Pax: 40", dsid["Detalle"])
+
     def test_costo_cambia_y_venta_igual(self):
         despues = DESPUES.replace("81.65,0.00,0.00", "81.65,99.30,99.30", 1)             # la primera línea conserva la venta
         r = C.comparar(ANTES.encode("utf-8"), despues.encode("utf-8"))

@@ -109,17 +109,33 @@ def comparar(antes, despues, no_tocada=None):
     `no_tocada`: función opcional que dice si una línea del reporte es de las que la herramienta NO procesa (por ejemplo,
     proveedor por asignar). Sirve de grupo de control: si la venta también cambió ahí, la causa no son las sustituciones."""
     pre, post = leer_reporte(antes), leer_reporte(despues)
-    grupos_post = {}
-    for f in post:
-        grupos_post.setdefault(_clave(f), []).append(f)
-    lineas, usadas = [], set()
-    for f in pre:
-        lista = grupos_post.get(_clave(f), [])
-        g = lista.pop(0) if lista else None
-        lineas.append(_linea(f, g, no_tocada))
-    for lista in grupos_post.values():
-        for g in lista:
-            lineas.append(_linea(None, g, no_tocada))
+    # Emparejado por etapas: primero Reference + Supplier + Option + fecha + Pax + VoucherNo (distingue líneas repetidas aunque el reporte
+    # las ordene distinto), después sin el voucher, y por último sin el Pax (si los pax de la reserva cambiaron entre los dos reportes la
+    # línea se compara igual y el cambio de Pax figura en 'Otros cambios').
+    def sin_pax(f):
+        return _clave(f)[:-1]          # CLAVE termina en Pax
+
+    def con_voucher(f):
+        return _clave(f) + (str(f.get("VoucherNo", "")).strip(),)
+
+    pares, pre_pend, post_pend = [], list(pre), list(post)
+    for clave_fn in (con_voucher, _clave, sin_pax):
+        grupos = {}
+        for g in post_pend:
+            grupos.setdefault(clave_fn(g), []).append(g)
+        usados, resto_pre = set(), []
+        for f in pre_pend:
+            lista = grupos.get(clave_fn(f))
+            if lista:
+                g = lista.pop(0)
+                usados.add(id(g))
+                pares.append((f, g))
+            else:
+                resto_pre.append(f)
+        pre_pend = resto_pre
+        post_pend = [g for g in post_pend if id(g) not in usados]
+    lineas = [_linea(f, g, no_tocada) for f, g in pares]
+    lineas += [_linea(f, None, no_tocada) for f in pre_pend] + [_linea(None, g, no_tocada) for g in post_pend]
     # Líneas con la misma Reference + Supplier + Option + fecha: se numeran ("1 de 2") para poder distinguirlas una por una.
     por_clave = {}
     for x in lineas:
