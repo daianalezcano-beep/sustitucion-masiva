@@ -539,7 +539,7 @@ def render_comparador():
                 filas = [x for x in res["lineas"] if x["Resultado"] == estado]
                 if filas and estado != "Sin cambios":
                     st.markdown(f"**{estado}** ({len(filas)})")
-                    st.dataframe(filas, hide_index=True, use_container_width=True)
+                    st.dataframe(filas, hide_index=True, use_container_width=True, height="content")   # sin scroll propio: la rueda del mouse mueve la página
         except Exception as e:      # si algo falla al dibujar las tablas, se dice qué (y la descarga de arriba sigue sirviendo)
             st.error(f"No pude mostrar las tablas: {type(e).__name__}: {e}")
 
