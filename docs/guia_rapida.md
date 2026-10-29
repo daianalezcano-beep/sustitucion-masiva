@@ -15,7 +15,7 @@ cancelados no entran en la corrida.
 1. Doble clic en `run_app.bat` (antes, `actualizar_app.bat` para tener la última versión).
 2. En **Parámetros** elegí el modo:
    - **Solo revisar:** lee y muestra qué se procesaría, sin modificar nada. Recomendado antes de aplicar.
-   - **Aplicar cambios:** hace la sustitución real.
+   - **Aplicar cambios:** hace la sustitución real. **Exige adjuntar el reporte PRE** (Product Analysis exportado antes de la corrida, con las mismas fechas): la app verifica que cubra todas las combinaciones PENDIENTES y lo guarda para comparar después.
 3. Poné **Servicios desde** (obligatoria) y, si hace falta, **hasta**. Chequeá que la URL de Tourplan sea la del ambiente que querés usar.
 4. Tocá **Ejecutar**. La consola muestra el avance, con la hora de cada paso. No toques la ventana de Chrome mientras corre.
    **Abortar** corta al terminar la combinación en curso.

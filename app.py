@@ -26,6 +26,7 @@ import streamlit as st
 
 from common import comparador
 from common import logica as L
+from common import pre_reporte
 from common import reporte_entrada
 from common import ejecucion as E
 from common import user_config
@@ -182,10 +183,43 @@ def render_parametros(estado):
                                         "En los demás se asume que no corresponden: si igual aparecen datos, esa combinación se "
                                         "rechaza sin tocar nada.")
 
+    pre = None
+    if modo == "aplicar":
+        pre = st.file_uploader("Reporte PRE: Product Analysis exportado ANTES de la corrida (.csv) — obligatorio", type=["csv"],
+                               disabled=bloqueado, key="rep_pre",
+                               help="Es la única foto de costos y ventas para revisar la corrida después (y corregir si hace falta). Tiene que "
+                                    "cubrir todas las combinaciones PENDIENTES, con las mismas fechas Desde/Hasta. Se guarda en salida/pre_reportes "
+                                    "y el comparador lo usa como «antes».")
+
     usuario, password = user_config.tp_credenciales_default()
     return {"modo": modo, "desde": desde, "hasta": hasta, "sheet_url": sheet_url,
             "base_url": base_url, "fila": int(fila), "confirmar_ok": False,
-            "pudo_service_types": pudo_types, "usuario": usuario, "password": password}
+            "pudo_service_types": pudo_types, "usuario": usuario, "password": password,
+            "pre_contenido": pre.getvalue() if pre else None}
+
+
+def _verificar_pre(p):
+    """Antes de aplicar: el PRE tiene que ser un Product Analysis y cubrir las combinaciones PENDIENTES que se van a procesar.
+    Devuelve (None, ruta_guardada) si está bien, o (mensaje_de_error, None)."""
+    try:
+        filas_pre = pre_reporte.leer_pre(p["pre_contenido"])
+    except Exception as e:
+        return f"El reporte PRE no sirve: {e}", None
+    try:
+        _, filas = _leer_hoja(p["sheet_url"])
+    except Exception as e:
+        return f"No pude leer el Sheet para verificar el PRE: {e}", None
+    pendientes = [f for f in filas if E.clasificar_estado(f.get("ESTADO")) == "Pendiente"
+                  and (not p["fila"] or f.get("__row_idx__") == p["fila"])]
+    if not pendientes:
+        return "No hay filas PENDIENTES para procesar (revisá la hoja o el número de fila).", None
+    faltan = pre_reporte.combinaciones_faltantes(filas_pre, pendientes, datetime.combine(p["desde"], datetime.min.time()),
+                                                 datetime.combine(p["hasta"], datetime.min.time()))
+    if faltan:
+        lista = "; ".join(" / ".join(k) for k in faltan[:10]) + (f"; … (+{len(faltan) - 10})" if len(faltan) > 10 else "")
+        return (f"El reporte PRE no cubre {len(faltan)} de las combinaciones PENDIENTES (Location / Supplier / Service Type / Code) "
+                f"en las fechas elegidas: {lista}. Exportá el PRE con esos filtros, o sacá esas filas de PENDIENTE."), None
+    return None, pre_reporte.guardar_pre(p["pre_contenido"], SALIDA / pre_reporte.CARPETA)
 
 
 def lanzar(estado, p):
@@ -448,13 +482,20 @@ def render_desde_reporte(estado):
 def render_comparador():
     with st.expander("📊 Comparar reportes antes / después (control de costo y venta)"):
         st.caption("Subí el reporte Product Analysis exportado **antes** de la corrida y el exportado **después** (con las mismas opciones). "
-                   "Al comparar se ve, por línea, cuánto cambió el costo y si cambió la venta (Retail / Agent). Los archivos no se guardan.")
+                   "Al comparar se ve, por línea, cuánto cambió el costo y si cambió la venta (Retail / Agent). El PRE de la última corrida en modo aplicar queda guardado y se puede usar como «antes».")
         c1, c2 = st.columns(2)
-        antes = c1.file_uploader("Reporte ANTES (.csv)", type=["csv"], key="rep_antes")
+        guardado = pre_reporte.ultimo_pre(SALIDA / pre_reporte.CARPETA)
+        usar_guardado = False
+        if guardado:
+            usar_guardado = c1.checkbox(
+                f"Usar el PRE guardado de la última corrida ({datetime.fromtimestamp(guardado.stat().st_mtime):%d/%m/%Y %H:%M})",
+                value=True, key="usar_pre_guardado")
+        antes = None if usar_guardado else c1.file_uploader("Reporte ANTES (.csv)", type=["csv"], key="rep_antes")
         despues = c2.file_uploader("Reporte DESPUÉS (.csv)", type=["csv"], key="rep_despues")
-        if st.button("Comparar", type="primary", disabled=not (antes and despues), key="comparar"):
+        antes_bytes = guardado.read_bytes() if usar_guardado else (antes.getvalue() if antes else None)
+        if st.button("Comparar", type="primary", disabled=not (antes_bytes and despues), key="comparar"):
             try:
-                st.session_state["_comparacion"] = comparador.comparar(antes.getvalue(), despues.getvalue(),
+                st.session_state["_comparacion"] = comparador.comparar(antes_bytes, despues.getvalue(),
                                                                        no_tocada=reporte_entrada.es_por_asignar)
             except Exception as e:      # un archivo que no es el reporte no debe romper la app
                 st.session_state["_comparacion"] = None
@@ -534,8 +575,14 @@ def main():
     abortar = c2.button("⏹ Abortar", disabled=not estado["running"] or estado["abort_pedido"], use_container_width=True,
                         help="Corta al terminar la combinación en curso y hace logout de Tourplan.")
     if ejecutar:
-        lanzar(estado, p)
-        st.rerun()
+        error_pre = None
+        if p["modo"] == "aplicar":
+            error_pre, _ = _verificar_pre(p)
+        if error_pre:
+            st.error(error_pre)
+        else:
+            lanzar(estado, p)
+            st.rerun()
     if abortar:
         estado["abort_pedido"] = True
         try:

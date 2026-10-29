@@ -209,13 +209,12 @@ class App(unittest.TestCase):
         claves = [c.key for c in at.checkbox]
         self.assertNotIn("confirmo", claves)                        # ni "revisé 000000" ni "pedir confirmación"
         self.assertNotIn("confirmar_ok", claves)
+        self.assertIn("rep_pre", [u.key for u in at.get("file_uploader")])           # el PRE se pide solo en aplicar
+        self.assertTrue(self.boton(at, "Ejecutar").disabled)                        # y sin PRE no se puede ejecutar
+        self.assertTrue(any("reporte PRE" in c.value for c in at.caption))
+        at.radio(key="modo").set_value("Solo revisar (lectura)").run()
+        self.assertNotIn("rep_pre", [u.key for u in at.get("file_uploader")])
         self.assertFalse(self.boton(at, "Ejecutar").disabled)
-        at.text_input(key="pudo_types").set_value(" co, tr;ch ").run()
-        with mock.patch("subprocess.Popen", ProcFalso):
-            self.boton(at, "Ejecutar").click().run()
-        env = ProcFalso.llamada[1]["env"]
-        self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_CONFIRMAR_OK"]), ("aplicar", "0"))        # sin confirmación manual
-        self.assertEqual(env["TOURPLAN_PUDO_SERVICE_TYPES"], "CO,TR,CH")
 
     def test_fechas_invalidas_bloquean(self):
         self.configurar()

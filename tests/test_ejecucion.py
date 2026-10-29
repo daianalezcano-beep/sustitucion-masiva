@@ -26,7 +26,13 @@ def params(**kw):
 class Parametros(unittest.TestCase):
     def test_validos(self):
         self.assertEqual(E.validar_parametros(params()), [])
-        self.assertEqual(E.validar_parametros(params(modo="aplicar")), [])
+        self.assertEqual(E.validar_parametros(params(modo="aplicar", pre_contenido=b"x")), [])
+
+    def test_aplicar_exige_el_reporte_pre(self):
+        errores = E.validar_parametros(params(modo="aplicar"))
+        self.assertEqual(len(errores), 1)
+        self.assertIn("PRE", errores[0])
+        self.assertEqual(E.validar_parametros(params(modo="lectura")), [])        # en lectura no hace falta
 
     def test_faltantes_y_rango(self):
         self.assertEqual(len(E.validar_parametros(params(usuario="", password=" ", sheet_url=""))), 3)

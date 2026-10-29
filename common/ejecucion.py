@@ -40,6 +40,8 @@ def validar_parametros(p):
             errores.append(f"Falta {nombre}" + (" (cargala en ⚙️ Configuración)." if clave != "base_url" else "."))
     if p.get("modo") not in ("lectura", "aplicar"):
         errores.append("Elegí un modo.")
+    if p.get("modo") == "aplicar" and not p.get("pre_contenido"):
+        errores.append("Falta adjuntar el reporte PRE (Product Analysis exportado antes de la corrida): es obligatorio para aplicar.")
     error_rango = L.validar_rango(_como_datetime(p.get("desde")), _como_datetime(p.get("hasta")))
     if error_rango:
         errores.append(error_rango + ".")
