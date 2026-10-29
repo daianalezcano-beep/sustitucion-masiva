@@ -186,6 +186,7 @@ def _analizar_reporte(contenido, sheet_url):
     en_hoja = {L.clave_combinacion(f): f.get("ESTADO", "") for f in en_hoja_filas}
     plan = reporte_entrada.armar_plan(filas, _tabla_provisorios(), en_hoja=en_hoja)
     plan["pendientes_en_hoja"] = sum(1 for f in en_hoja_filas if E.clasificar_estado(f.get("ESTADO")) == "Pendiente")
+    plan["conteo"] = E.contar_estados(en_hoja_filas)         # la hoja ya se leyó: de paso se actualiza la cola de trabajo
     return plan
 
 def _cargar_a_la_hoja(plan, sheet_url):
@@ -510,6 +511,8 @@ def render_cargar_reporte(estado, bloqueado):
     if st.button("Analizar reporte", disabled=not (archivo and sheet_url) or bloqueado, key="analizar_reporte"):
         try:
             st.session_state["_plan_reporte"] = _analizar_reporte(archivo.getvalue(), sheet_url)
+            estado["conteo"], estado["conteo_error"] = st.session_state["_plan_reporte"]["conteo"], None
+            st.rerun()          # la cola de trabajo (arriba) ya muestra lo que tiene la hoja
         except Exception as e:      # un archivo que no es el reporte, o un Sheet inaccesible, no debe romper la app
             st.session_state["_plan_reporte"] = None
             st.error(f"No pude analizar el reporte: {e}")
@@ -907,6 +910,11 @@ def main():
     sheet_url = _sheet_url_guardada()
 
     render_encabezado()
+
+    # La primera vez que se abre la página se lee la hoja sola (después, al analizar un reporte o al confirmar una carga, y con Refrescar).
+    if sheet_url and estado["conteo"] is None and not estado["conteo_error"] and not estado["running"] and not st.session_state.get("_conteo_inicial"):
+        st.session_state["_conteo_inicial"] = True
+        _refrescar_conteo(estado, sheet_url)
 
     with st.container(key="barra_corrida"):
         st.fragment(run_every=1 if estado["running"] else None)(render_barra)(estado)

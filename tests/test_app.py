@@ -180,6 +180,18 @@ class App(unittest.TestCase):
         self.assertTrue(self.boton(at, "analizar_reporte").disabled)                                   # sin archivo no se puede analizar
         self.assertNotIn("confirmar_carga", [b.key for b in at.button])                                # y nada se carga sin confirmar
 
+    def test_la_cola_se_lee_sola_al_abrir_la_pagina(self):
+        self.configurar()
+        filas = [{"ESTADO": "PENDIENTE"}, {"ESTADO": "PENDIENTE"}, {"ESTADO": "OK"}]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO"])):
+            at.run()
+        self.assertFalse(at.exception)
+        cola = next(m.value for m in at.markdown if 'class="sd-cola"' in m.value)
+        self.assertIn('<span class="n">2</span><span class="l">Pendiente', cola)                       # sin tocar Refrescar
+        self.assertIn("Combinaciones pendientes en el Sheet: 2", self.textos(at))
+
     def test_sin_configurar_no_se_puede_ejecutar(self):
         at = self.app()
         self.assertFalse(at.exception)

@@ -31,7 +31,7 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
   hoja o tienen código genérico (`700` o `600` + tres letras, ej. `700GUI`: valor cero que se manualiza), y muestra una vista previa (combinaciones, reservas, tiempo estimado, rango de fechas). **Solo al confirmar** las agrega a `SUBSTITUTE` como
   `PENDIENTE` (ordenadas por Location, Service Type, Supplier y código, para que el script recargue lo mínimo); después se ejecuta como siempre.
   Lógica en `common/reporte_entrada.py`.
-- **Cola de trabajo:** mientras corre se vuelve a leer la hoja cada ~10 s y se muestra el avance (`combinación k de N`). En modo lectura las filas
+- **Cola de trabajo:** se lee sola al abrir la página, al analizar un reporte (la hoja ya se leyó para detectar duplicados) y al confirmar una carga; **Refrescar** la vuelve a leer a mano. Mientras corre se vuelve a leer la hoja cada ~10 s y se muestra el avance (`combinación k de N`). En modo lectura las filas
   siguen `PENDIENTE` por diseño (solo cambian los errores), así que el contador no se mueve: el avance se ve en la barra.
 - **Comparar reportes antes / después:** paso 2 · Comparar. Se suben los dos reportes Product Analysis (CSV, exportados con las mismas
   opciones), se toca **Comparar** y muestra por línea cuánto cambió el costo y si cambió la venta (Retail / Agent), con las líneas con venta modificada
