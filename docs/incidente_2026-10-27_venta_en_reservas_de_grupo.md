@@ -93,3 +93,26 @@ B como objetivo (cierra el riesgo si la causa reaparece por una actualización).
 2. ¿Quién consulta a Tourplan y qué se pregunta? (G) Evidencia para adjuntar: el patrón por tipo de reserva y un ejemplo antes/después de una línea de grupo.
 3. ¿Se prioriza el control automático de venta (B)?
 4. ¿Se revisa a nivel de la reserva de grupo si el total de venta quedó afectado (más allá de las líneas)?
+
+## 10. Novedades posteriores
+
+**Lo que dijo Tourplan / lo que se comprobó**
+- Tourplan identificó la venta en cero en los servicios madre como un **bug de la versión** instalada en producción. Sigue sin confirmarse si el comportamiento de los grupos de este incidente es el mismo bug; no hay fecha de corrección.
+- En el ambiente de **test (versión 2.7)** la herramienta Substitute Service **modifica la venta aunque "Retain Sell Price" esté tildado**. Por lo tanto, test no sirve para validar la venta de este flujo, y **es probable que producción cambie de comportamiento cuando se actualice a esa versión**: hay que repetir las pruebas después de cada actualización de Tourplan.
+- Para revisar costos manualizados (override) antes de sustituir, Tourplan ofreció armar un **reporte dinámico**. Todavía no está disponible; la exclusión de líneas con costo manual queda pendiente de ese reporte.
+
+**Plan de prueba en producción (con un tarifario/transportista con pocos servicios, FIT y grupos)**
+1. Exportar Service Status y Product Analysis (PRE) del proveedor y del rango de fechas, y cargar las combinaciones desde el reporte; correr primero en Solo revisar.
+2. Aplicar de a una combinación (Solo la fila nº), primero con reservas FIT y después con grupos, comparando el PRE contra el POST antes de seguir con la siguiente.
+3. Revisar a mano el total de venta del servicio madre en 2 o 3 reservas (FIT y grupo) y, si hay una línea con costo manual, ver si se pisa.
+4. No probar la ida sola ni la vuelta sin Retain Sell Price sobre reservas reales: dejarían reservas en el provisorio.
+
+**Ideas a desarrollar (decididas en principio, sin implementar)**
+- **Comparar el valor del servicio madre antes y después**, para asegurar que no cambia en la ejecución ni después de una eventual corrección manual. El Product Analysis **no trae ningún campo que vincule el componente con su servicio madre** (columnas: Agent, Supplier, Loc, Service, Option, Description, Date, Pax, Qty, Total, Currency, Cost, Agent, Retail, Reference, BookingName, Status, D.O.T, VoucherNo, Bkg Analysis 1–6, Consultant). Opciones: (a) totales de venta por reserva (Reference) pre/post, que se puede hacer con el reporte actual; (b) por servicio madre, que requiere un reporte de Tourplan que lo traiga (se puede pedir junto con el reporte dinámico).
+- **Dividir la ejecución en FIT y grupos.** Hallazgo: **el estado de reserva `KK` no separa limpiamente grupos de FIT**. En los Service Status del 19/10 y del 27/10, `KK` aparece en referencias de grupo (`EAGP`, `EAGR`, `EAPR`, `TDGR`) pero también en `EAFG` (343 líneas el 19/10), y hay referencias de grupo con estados `QU` u `OK` (`EAGP` QU 5, `EAPR` OK 3 el 27/10). El discriminador real es el **prefijo de la Reference**, que el filtro de Substitute Service no ofrece. Caminos posibles: (a) filtros Branch o Department de la propia pantalla, si distinguen grupos (a confirmar en Tourplan); (b) **seleccionar en Results solo las filas** cuya BookingReference cumpla la regla (FIT: `EAFI`/`EAFT`/`EAFG`; grupo: `EAGP`/`EAGR`/`EAPR`/`TDGR`), en lugar de "Select all". La selección por fila serviría también para excluir líneas con costo manualizado cuando exista el reporte dinámico.
+- Esto modifica la alternativa A: excluir por `KK` asume que `KK` ≡ grupo, y los datos muestran que no.
+
+**Decisiones pendientes (actualización)**
+1. Confirmar en Tourplan si Branch o Department distinguen FIT de grupos.
+2. Definir la regla de FIT / grupo por prefijo (revisar `EAFG`, `EAIN`, `EAMI`, `EAFL` y los `TD*`, que no están clasificados).
+3. Elegir el nivel de comparación del servicio madre: por reserva (ya posible) o por madre (necesita un reporte).
