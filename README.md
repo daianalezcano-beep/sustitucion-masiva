@@ -20,19 +20,20 @@ Doble clic en `run_app.bat` (crea su entorno de Python la primera vez e instala 
 el navegador. Para traer los cambios nuevos del repo, doble clic en `actualizar_app.bat` (hace `git pull`; la carpeta tiene que ser un
 clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezcano\PortableGit`):
 
-- **Configuración** (una vez por PC; se comparte con la otra app de Tourplan): usuario y contraseña de Tourplan y URL del Sheet (la URL del Sheet se carga solo acá, no en la pantalla principal).
-- **Parámetros:** modo (solo revisar / aplicar), servicios desde (obligatoria; avisa si es anterior a hoy) y hasta (por defecto
+- **Pantalla:** encabezado con el engranaje de Configuración y chips de estado; barra de corrida pegada arriba mientras corre (o al terminar); cola de trabajo; dos pasos —**1 · Ejecutar** y **2 · Comparar**, con su estado en la etiqueta—; consola e historial. Los dos pasos se dibujan siempre y se oculta el inactivo (así no se pierde lo cargado). Color principal azul en `.streamlit/config.toml`; el rojo queda para Aplicar y errores.
+- **Configuración** (engranaje; una vez por PC; se comparte con la otra app de Tourplan; se abre sola si falta el usuario): usuario y contraseña de Tourplan y URL del Sheet (la URL del Sheet se carga solo acá).
+- **Paso 1 · Ejecutar** (una tarjeta con 4 secciones: combinaciones, modo y fechas, PRE, ejecutar): modo (solo revisar / aplicar), servicios desde (obligatoria; avisa si es anterior a hoy) y hasta (por defecto
   31/12/2049), URL de Tourplan, "solo la fila nº" para probar una combinación.
 - **Modo aplicar:** la app ya no pide confirmación manual (se quitó el checkbox): las verificaciones del script (provisorio libre antes y después, foto original vs. final) la reemplazan. Con `TOURPLAN_CONFIRMAR_OK=1` (solo desde la consola) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
   **Continuar / Cancelar** (y la captura del modal). La vuelta se hace sola: frenar entre ida y vuelta dejaría reservas en el provisorio.
-- **Cargar combinaciones desde un reporte de Tourplan:** desplegable en la app. Se sube el reporte **Service Status** (CSV); la app saca los servicios
+- **Cargar combinaciones desde un reporte de Tourplan:** sección 1 del paso Ejecutar (opción «Cargar un reporte nuevo»). Se sube el reporte **Service Status** (CSV); la app saca los servicios
   cancelados (`CX`), deja una línea por combinación (Location + Supplier + Service Type + Option), descarta las que no tienen provisorio o ya están en la
   hoja, y muestra una vista previa (combinaciones, reservas, tiempo estimado, rango de fechas). **Solo al confirmar** las agrega a `SUBSTITUTE` como
   `PENDIENTE` (ordenadas por Location, Service Type, Supplier y código, para que el script recargue lo mínimo); después se ejecuta como siempre.
   Lógica en `common/reporte_entrada.py`.
 - **Cola de trabajo:** mientras corre se vuelve a leer la hoja cada ~10 s y se muestra el avance (`combinación k de N`). En modo lectura las filas
   siguen `PENDIENTE` por diseño (solo cambian los errores), así que el contador no se mueve: el avance se ve en la barra.
-- **Comparar reportes antes / después:** desplegable al final de la app. Se suben los dos reportes Product Analysis (CSV, exportados con las mismas
+- **Comparar reportes antes / después:** paso 2 · Comparar. Se suben los dos reportes Product Analysis (CSV, exportados con las mismas
   opciones), se toca **Comparar** y muestra por línea cuánto cambió el costo y si cambió la venta (Retail / Agent), con las líneas con venta modificada
   primero y un CSV descargable. Lógica en `common/comparador.py` (acepta `;` o `,` y fechas `21-oct-26` o `21-Oct-2026`; no guarda los archivos).
 - **Abortar:** corta al terminar la combinación en curso (completa) y hace logout.
@@ -111,7 +112,7 @@ python scripts\substitute_doble\substitute_doble.py
   glosario código → texto del filtro está en `SERVICE_STATUS` (`substitute_doble.py`); `CC` y `LC` se llaman igual en el filtro y se
   distinguen mirando qué código devuelve Results. Un estado fuera del glosario (o vacío) rechaza la combinación antes de tocar nada.
 - **Pickup / drop-off / Remarks:** se leen de la celda PU/DO del listado (ya no del panel derecho). Solo se analizan y reponen en los
-  Service Types que se indican en la app (`TOURPLAN_PUDO_SERVICE_TYPES`, ej. `CO,TR`). En los demás se asume que no corresponden:
+  Service Types definidos en el script (`PUDO_SERVICE_TYPES_FIJOS`, hoy ninguno; ej. `{"CO", "TR"}`; la variable `TOURPLAN_PUDO_SERVICE_TYPES` permite sumar otros solo para probar). En los demás se asume que no corresponden:
   si igual hay datos, la combinación se rechaza sin tocar nada. En los habilitados, dentro de cada estado los datos deben ser iguales
   (un solo modal los repone); si no, se rechaza (pendiente de resolver; depende de comprobar si Tourplan los conserva solo).
 - `Retain Sell Price` y `Retain Voucher Text` no se tocan: antes de cada OK se verifica (por el texto del label) que sigan tildados.
@@ -136,7 +137,7 @@ python scripts\substitute_doble\substitute_doble.py
   Tourplan) la misma operación, con el script y a mano, **pierde la venta** (Retail/Agent de 99,30 a 0,00). Riesgo: que producción reciba esa versión.
   El script no lee precios y no lo detectaría: pendiente un control automático (Product Analysis antes/después: el costo puede cambiar, la venta no;
   si cambia, detener la corrida) y consultar a Tourplan. No usar test para validar precios.
-- **Service Types en los que analizar pickup / drop-off / Remarks (pendiente de rediseño):** hoy es un campo de texto en la app (vacío = ninguno)
+- **Service Types en los que analizar pickup / drop-off / Remarks:** ya no se configura en la app: se define en el script (`PUDO_SERVICE_TYPES_FIJOS`, hoy vacío = ninguno)
   y, si en un Service Type no habilitado aparecen esos datos, la combinación se rechaza. Hay que darle una vuelta (cómo se define, dónde se guarda,
   qué default conviene y qué hacer cuando los datos difieren entre reservas) antes de usarlo en volumen. Anotado, sin cambios por ahora.
 - **Servicios cancelados (CX) excluidos:** Tourplan no deja sustituir un servicio con Service Status `CX` (en producción, 2026-10-20, rechazó con

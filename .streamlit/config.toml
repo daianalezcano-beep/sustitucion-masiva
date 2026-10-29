@@ -1,0 +1,7 @@
+# Color principal de la app (botones primarios, selección de opciones y pasos): azul sobrio en lugar del rojo por defecto de Streamlit.
+# El rojo queda reservado para lo que modifica reservas reales (modo Aplicar) y para los errores. Un color por tema (claro / oscuro).
+[theme.light]
+primaryColor = "#1d5f8f"
+
+[theme.dark]
+primaryColor = "#6db3e4"

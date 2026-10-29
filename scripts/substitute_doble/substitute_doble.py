@@ -104,9 +104,11 @@ ESCRIBIR_DETALLE = os.environ.get("TOURPLAN_ESCRIBIR_DETALLE", "1").strip() in (
 CONFIRMAR_OK = os.environ.get("TOURPLAN_CONFIRMAR_OK", "1").strip() in ("1", "true", "True")
 # Si la app define esta carpeta, la confirmación se hace por archivos (botones en la app); si no, escribiendo SI en la consola.
 CONFIRM_DIR = os.environ.get("TOURPLAN_CONFIRM_DIR", "").strip()
-# Service Types (separados por coma) en los que SÍ se analizan y reponen pickup/drop-off/Remarks. En los demás se
-# asume que no corresponden: si igual aparecen datos en el listado, la combinación se rechaza sin tocar nada.
-PUDO_SERVICE_TYPES = {t.strip().upper() for t in os.environ.get("TOURPLAN_PUDO_SERVICE_TYPES", "").split(",") if t.strip()}
+# Service Types en los que SÍ se analizan y reponen pickup/drop-off/Remarks. En los demás se asume que no corresponden: si igual
+# aparecen datos en el listado, la combinación se rechaza sin tocar nada. Se definen acá, en el código (hoy ninguno);
+# TOURPLAN_PUDO_SERVICE_TYPES (separados por coma) permite sumar otros solo para probar, sin tocar el código.
+PUDO_SERVICE_TYPES_FIJOS = set()      # ej.: {"CO", "TR"}
+PUDO_SERVICE_TYPES = PUDO_SERVICE_TYPES_FIJOS | {t.strip().upper() for t in os.environ.get("TOURPLAN_PUDO_SERVICE_TYPES", "").split(",") if t.strip()}
 # Reusar la pantalla Substitute Service entre búsquedas (volver a la solapa Filter) ahorra ~15 s por
 # consulta. Si la pantalla no está como se espera, se abre de cero. TOURPLAN_REUSAR_PANTALLA=0 la desactiva.
 # NO está validado contra Tourplan real: Found podría quedar con el valor de la consulta anterior
@@ -1302,7 +1304,7 @@ def procesar_fila_aplicar(driver, ctx, row):
             if any(L.necesita_pudo(p) for p in pudos):
                 raise ErrorFila("ERROR: pickup/dropoff inesperado", f"Hay reservas en estado {st} con datos de pickup/drop-off/"
                                 f"Remarks y el Service Type {stype} no está habilitado para analizarlos "
-                                "(se habilita en la app; no se tocó nada)")
+                                "(se habilita en el script, en PUDO_SERVICE_TYPES_FIJOS; no se tocó nada)")
             pudo0, reponer = None, False
         if any(p["pickup_fecha"] and p["pickup_fecha"] != f["date"] for p, f in zip(pudos, filas_g)):
             print(f"    ⚠ [{st}] El pickup/drop-off original no cae en la fecha del servicio: el modal no permite fecha, "
