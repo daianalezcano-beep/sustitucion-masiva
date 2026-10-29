@@ -50,6 +50,15 @@ class ReporteEntrada(unittest.TestCase):
         self.assertIn("Ya está en la hoja (estado: OK)", motivos[("BUE", "CT4ID")])
         self.assertEqual(len(motivos), 2)
 
+    def test_descarta_los_codigos_genericos_700_y_600(self):
+        lineas = "".join(f"OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,{c},B x2,EAFI{i},OK,2,1,0,0,0,A,V,V,,Sanchez\n"
+                          for i, c in enumerate(("700GUI", "600TRA", "700gui", "700GUIA", "7000GU", "CT3ID")))
+        p = R.armar_plan(R.leer_reporte((CAB + "\n" + lineas).encode("utf-8")), PROV)
+        self.assertEqual([c["CODIGO"] for c in p["a_cargar"]], ["7000GU", "700GUIA", "CT3ID"])         # solo 700/600 + 3 letras
+        genericos = {c["CODIGO"]: c["MOTIVO"] for c in p["descartadas"]}
+        self.assertEqual(sorted(genericos), ["600TRA", "700GUI"])                                      # mayúsculas/minúsculas: 700gui = 700GUI
+        self.assertIn("Código genérico", genericos["700GUI"])
+
     def test_excluye_por_nombre_aunque_el_codigo_sea_otro(self):
         csv = (CAB + "\nOT,XYZ1,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Guía POR ASIGNAR\n").encode("utf-8")
         p = R.armar_plan(R.leer_reporte(csv), PROV)
@@ -75,7 +84,7 @@ class ReporteEntrada(unittest.TestCase):
         r = p["resumen"]
         self.assertEqual((r["Líneas del reporte"], r["Líneas excluidas (servicio cancelado)"]), (1595, 202))
         self.assertEqual(r["Líneas excluidas (proveedor por asignar)"], 628)
-        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (276, 765))       # lo que procesó la corrida real del 27/10
+        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (272, 745))       # la corrida real del 27/10 procesó 276 / 765: la diferencia son 4 combinaciones de código genérico (700GUI, etc.)
         self.assertTrue(all(c["SUPPLIER"] != "GUIAPO" for c in p["a_cargar"]))
         self.assertEqual(r["Desde"].strftime("%d/%m/%Y"), "28/10/2026")
 

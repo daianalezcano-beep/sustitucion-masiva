@@ -10,6 +10,7 @@ Columnas del reporte (el primer "Status" es el estado del servicio y el segundo 
 Service (= Service Type), Location, Option (= Product Code), Reference, Status (2)...
 """
 
+import re
 import unicodedata
 from collections import Counter
 
@@ -20,6 +21,8 @@ COLUMNAS_REQUERIDAS = ("Status", "Supplier", "Service Date", "Service", "Locatio
 ESTADOS_EXCLUIDOS = ("CX",)        # servicios cancelados: Tourplan no permite sustituirlos
 # Proveedores "por asignar" (ej. GUIAPO, "Guia por Asignar"): no se procesan, porque el costo correcto se carga cuando se asigna el proveedor real.
 PROVEEDORES_POR_ASIGNAR = ("GUIAPO",)
+# Códigos genéricos (700 o 600 + tres letras, ej. 700GUI): servicios de valor cero que se manualizan; la herramienta no los procesa.
+CODIGO_GENERICO = re.compile(r"(700|600)[A-Z]{3}")
 # Estimación de tiempo (medida en producción, 2026-10-20): segundos fijos de la corrida, por combinación, por reserva y por estado extra.
 SEG_FIJOS, SEG_COMBINACION, SEG_RESERVA, SEG_ESTADO_EXTRA = 75, 22, 1.5, 12
 
@@ -86,7 +89,9 @@ def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLU
                 "DESDE": min(g["fechas"]).strftime("%d/%m/%Y") if g["fechas"] else "",
                 "HASTA": max(g["fechas"]).strftime("%d/%m/%Y") if g["fechas"] else ""}
         motivo = None
-        if L.provisorio_para(loc, stype, provisorios) is None:
+        if CODIGO_GENERICO.fullmatch(cod):
+            motivo = "Código genérico (valor cero, se manualiza)"
+        elif L.provisorio_para(loc, stype, provisorios) is None:
             motivo = f"Sin provisorio definido para {loc}/{stype}"
         elif (loc, sup, stype, cod) in en_hoja:
             motivo = f"Ya está en la hoja (estado: {en_hoja[(loc, sup, stype, cod)] or 'vacío'})"

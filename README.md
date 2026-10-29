@@ -27,8 +27,8 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
 - **Modo aplicar:** la app ya no pide confirmación manual (se quitó el checkbox): las verificaciones del script (provisorio libre antes y después, foto original vs. final) la reemplazan. Con `TOURPLAN_CONFIRMAR_OK=1` (solo desde la consola) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
   **Continuar / Cancelar** (y la captura del modal). La vuelta se hace sola: frenar entre ida y vuelta dejaría reservas en el provisorio.
 - **Cargar combinaciones desde un reporte de Tourplan:** sección 1 del paso Ejecutar (opción «Cargar un reporte nuevo»). Se sube el reporte **Service Status** (CSV); la app saca los servicios
-  cancelados (`CX`), deja una línea por combinación (Location + Supplier + Service Type + Option), descarta las que no tienen provisorio o ya están en la
-  hoja, y muestra una vista previa (combinaciones, reservas, tiempo estimado, rango de fechas). **Solo al confirmar** las agrega a `SUBSTITUTE` como
+  cancelados (`CX`), deja una línea por combinación (Location + Supplier + Service Type + Option), descarta las que no tienen provisorio, ya están en la
+  hoja o tienen código genérico (`700` o `600` + tres letras, ej. `700GUI`: valor cero que se manualiza), y muestra una vista previa (combinaciones, reservas, tiempo estimado, rango de fechas). **Solo al confirmar** las agrega a `SUBSTITUTE` como
   `PENDIENTE` (ordenadas por Location, Service Type, Supplier y código, para que el script recargue lo mínimo); después se ejecuta como siempre.
   Lógica en `common/reporte_entrada.py`.
 - **Cola de trabajo:** mientras corre se vuelve a leer la hoja cada ~10 s y se muestra el avance (`combinación k de N`). En modo lectura las filas
