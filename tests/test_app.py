@@ -192,6 +192,15 @@ class App(unittest.TestCase):
         self.assertIn('<span class="n">2</span><span class="l">Pendiente', cola)                       # sin tocar Refrescar
         self.assertIn("Combinaciones pendientes en el Sheet: 2", self.textos(at))
 
+    def test_la_cola_avisa_cuantas_se_suman_al_confirmar_el_reporte(self):
+        self.configurar()
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_plan_reporte"] = {"a_cargar": [{}, {}, {}], "descartadas": [], "resumen": {}, "conteo": {}}
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=([{"ESTADO": "PENDIENTE"}], ["ESTADO"])):
+            at.run()
+        self.assertIn("+3 al confirmar la carga del reporte", self.textos(at))
+
     def test_sin_configurar_no_se_puede_ejecutar(self):
         at = self.app()
         self.assertFalse(at.exception)

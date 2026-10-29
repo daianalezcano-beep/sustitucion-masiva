@@ -478,8 +478,12 @@ def render_cola(estado, sheet_url):
         estado["ultimo_conteo"] = time.time()
     with st.container(border=True, key="cola_trabajo"):
         c1, c2, c3 = st.columns([2.2, 7, 1.4], vertical_alignment="center")
-        c1.markdown('<p class="sd-cola-titulo">Cola de trabajo</p><p class="sd-nota">'
-                    + ("Se actualiza sola cada 10 s" if estado["running"] else "Leída del Google Sheet") + "</p>", unsafe_allow_html=True)
+        plan = st.session_state.get("_plan_reporte")
+        por_cargar = len(plan["a_cargar"]) if plan else 0
+        nota = ("Se actualiza sola cada 10 s" if estado["running"] else "Leída del Google Sheet")
+        if por_cargar:
+            nota = f"+{por_cargar} al confirmar la carga del reporte"      # el análisis no escribe en el Sheet: sumá cuando se confirma
+        c1.markdown(f'<p class="sd-cola-titulo">Cola de trabajo</p><p class="sd-nota">{nota}</p>', unsafe_allow_html=True)
         if estado["conteo_error"]:
             c2.error(f"No pude leer el Sheet: {estado['conteo_error']}")
         elif estado["conteo"]:
