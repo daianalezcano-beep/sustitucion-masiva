@@ -16,6 +16,7 @@ from collections import Counter
 
 from common import comparador as C
 from common import logica as L
+from common import tipo_reserva as T
 
 COLUMNAS_REQUERIDAS = ("Status", "Supplier", "Service Date", "Service", "Location", "Option", "Reference")
 ESTADOS_EXCLUIDOS = ("CX",)        # servicios cancelados: Tourplan no permite sustituirlos
@@ -58,10 +59,16 @@ def segundos_estimados(combinaciones):
 
 def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLUIDOS):
     """filas: líneas del reporte. provisorios: {(LOCATION, SERVICE TYPE): proveedor}. en_hoja: {(LOCATION, SUPPLIER,
-    SERVICE TYPE, CODIGO): ESTADO} de lo que ya está en la hoja SUBSTITUTE. Devuelve {'resumen', 'a_cargar', 'descartadas'}."""
-    en_hoja = {tuple(_n(x) for x in k): v for k, v in (en_hoja or {}).items()}
+    SERVICE TYPE, CODIGO, TIPO): ESTADO} de lo que ya está en la hoja SUBSTITUTE (la clave puede venir sin TIPO: filas anteriores a esa
+    columna, que cubren FITS y GRUPOS). Cada combinación se separa por TIPO (FITS / GRUPOS) según el Department de la Reference de cada
+    reserva; las reservas de un Department sin clasificar quedan descartadas. Devuelve {'resumen', 'a_cargar', 'descartadas'}."""
+    claves_hoja = {}
+    for k, v in (en_hoja or {}).items():
+        k = tuple(_n(x) for x in k)
+        claves_hoja[k + ("",) if len(k) == 4 else k] = v
+    en_hoja = claves_hoja
     excluidos = {_n(e) for e in estados_excluidos}
-    lineas_excluidas, incompletas, por_asignar, grupos = Counter(), 0, 0, {}
+    lineas_excluidas, incompletas, por_asignar, sin_clasificar, grupos = Counter(), 0, 0, 0, {}
     for f in filas:
         clave = (_n(f.get("Location")), _n(f.get("Supplier")), _n(f.get("Service")), _n(f.get("Option")))
         estado = _n(f.get("Status"))
@@ -74,7 +81,12 @@ def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLU
         if not all(clave):
             incompletas += 1
             continue
-        g = grupos.setdefault(clave, {"estados": Counter(), "fechas": []})
+        dep = T.departamento_de(f.get("Reference"))
+        tipo = T.tipo_de_departamento(dep)
+        if tipo is None:
+            sin_clasificar += 1
+        g = grupos.setdefault(clave + (tipo or "SIN CLASIFICAR",), {"estados": Counter(), "fechas": [], "deps": set()})
+        g["deps"].add(dep or "(vacío)")
         g["estados"][estado or "(vacío)"] += 1
         d = C.fecha(f.get("Service Date", ""))
         if d:
@@ -82,19 +94,21 @@ def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLU
     a_cargar, descartadas = [], []
     # Orden: Location, Service Type, Supplier, Code. Así las combinaciones seguidas comparten campos del filtro y el script solo
     # recarga lo que cambia (y el provisorio de un par Location + Service Type se usa de corrido).
-    for (loc, sup, stype, cod) in sorted(grupos, key=lambda k: (k[0], k[2], k[1], k[3])):
-        g = grupos[(loc, sup, stype, cod)]
-        fila = {"LOCATION": loc, "SUPPLIER": sup, "SERVICE TYPE": stype, "CODIGO": cod, "RESERVAS": sum(g["estados"].values()),
+    for (loc, sup, stype, cod, tipo) in sorted(grupos, key=lambda k: (k[0], k[2], k[1], k[3], k[4])):
+        g = grupos[(loc, sup, stype, cod, tipo)]
+        fila = {"LOCATION": loc, "SUPPLIER": sup, "SERVICE TYPE": stype, "CODIGO": cod, "TIPO": tipo, "RESERVAS": sum(g["estados"].values()),
                 "ESTADOS": ", ".join(f"{e} {n}" for e, n in sorted(g["estados"].items())), "N_ESTADOS": len(g["estados"]),
                 "DESDE": min(g["fechas"]).strftime("%d/%m/%Y") if g["fechas"] else "",
                 "HASTA": max(g["fechas"]).strftime("%d/%m/%Y") if g["fechas"] else ""}
         motivo = None
         if CODIGO_GENERICO.fullmatch(cod):
             motivo = "Código genérico (valor cero, se manualiza)"
+        elif tipo not in T.TIPOS_DE_FILA:
+            motivo = f"Department sin clasificar ({', '.join(sorted(g['deps']))}): no se procesa hasta clasificarlo"
         elif L.provisorio_para(loc, stype, provisorios) is None:
             motivo = f"Sin provisorio definido para {loc}/{stype}"
-        elif (loc, sup, stype, cod) in en_hoja:
-            motivo = f"Ya está en la hoja (estado: {en_hoja[(loc, sup, stype, cod)] or 'vacío'})"
+        elif (loc, sup, stype, cod, tipo) in en_hoja or (loc, sup, stype, cod, "") in en_hoja:
+            motivo = f"Ya está en la hoja (estado: {en_hoja.get((loc, sup, stype, cod, tipo), en_hoja.get((loc, sup, stype, cod, ''))) or 'vacío'})"
         (descartadas if motivo else a_cargar).append(dict(fila, MOTIVO=motivo) if motivo else fila)
     fechas = [d for g in grupos.values() for d in g["fechas"]]
     resumen = {
@@ -102,6 +116,7 @@ def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLU
         "Líneas excluidas (servicio cancelado)": sum(lineas_excluidas.values()),
         "Líneas excluidas (proveedor por asignar)": por_asignar,
         "Líneas incompletas": incompletas,
+        "Líneas de Department sin clasificar": sin_clasificar,
         "Combinaciones a cargar": len(a_cargar),
         "Reservas a cargar": sum(c["RESERVAS"] for c in a_cargar),
         "Combinaciones descartadas": len(descartadas),
@@ -115,7 +130,7 @@ def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLU
 def filas_para_hoja(a_cargar):
     """Las combinaciones a cargar como filas de la hoja SUBSTITUTE (ESTADO = PENDIENTE)."""
     return [{"LOCATION": c["LOCATION"], "SUPPLIER": c["SUPPLIER"], "SERVICE TYPE": c["SERVICE TYPE"], "CODIGO": c["CODIGO"],
-             "ESTADO": "PENDIENTE"} for c in a_cargar]
+             "TIPO": c["TIPO"], "ESTADO": "PENDIENTE"} for c in a_cargar]
 
 
 def texto_duracion(segundos):

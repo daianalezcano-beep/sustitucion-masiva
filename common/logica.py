@@ -9,6 +9,8 @@ provisorios, lectura progresiva de grillas con scroll y análisis de claves.
 from collections import Counter
 from datetime import datetime
 
+from common import tipo_reserva
+
 MESES = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
          "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12}
 MESES_INV = {v: k for k, v in MESES.items()}
@@ -106,16 +108,22 @@ def clave_combinacion(fila):
             _n(fila.get("SERVICE TYPE")), _n(fila.get("CODIGO")))
 
 
+def clave_fila(fila):
+    """Clave de una fila del Sheet: la combinación más su TIPO (FITS / GRUPOS / vacío en las filas anteriores a esa columna)."""
+    t = tipo_reserva.normalizar_tipo(fila.get("TIPO"))
+    return clave_combinacion(fila) + (_n(fila.get("TIPO")) if t is None else t,)
+
+
 def deduplicar_input(filas):
     """Marca como repetida (sin procesar) toda fila cuya combinación
-    (LOCATION, SUPPLIER, SERVICE TYPE, CODIGO) ya apareció antes.
+    (LOCATION, SUPPLIER, SERVICE TYPE, CODIGO, TIPO) ya apareció antes (la misma combinación en FITS y en GRUPOS son dos filas distintas).
     Devuelve (unicas, repetidas) donde repetidas = [(fila, fila_original)].
     Solo mira filas completas: una fila con campos vacíos nunca es 'repetida'
     (se rechaza después, por datos faltantes)."""
     vistas, unicas, repetidas = {}, [], []
     for f in filas:
-        k = clave_combinacion(f)
-        if not all(k):
+        k = clave_fila(f)
+        if not all(k[:4]):
             unicas.append(f)
         elif k in vistas:
             repetidas.append((f, vistas[k]))

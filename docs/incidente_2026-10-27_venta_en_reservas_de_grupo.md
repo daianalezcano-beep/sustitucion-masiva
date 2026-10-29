@@ -116,3 +116,12 @@ B como objetivo (cierra el riesgo si la causa reaparece por una actualización).
 1. Confirmar en Tourplan si Branch o Department distinguen FIT de grupos.
 2. Definir la regla de FIT / grupo por prefijo (revisar `EAFG`, `EAIN`, `EAMI`, `EAFL` y los `TD*`, que no están clasificados).
 3. Elegir el nivel de comparación del servicio madre: por reserva (ya posible) o por madre (necesita un reporte).
+
+## 11. Separación FIT / grupos implementada (modo «Tipo de reservas»)
+Se resolvió con el filtro **Department** de Substitute Service (la Reference empieza con sucursal + Department: `EAGP` = `GP`, `TDGR` = `GR`). Tabla de
+Tourplan (Department → aplica a grupos / a individuales): solo individuales `FG FI FM FT MI OP PE PI PU`; solo grupos `GP GR IN`; marcados para ambos
+`BO CF FL PR SL US`; para ninguno el vacío, `AC` y `RD`. Los de ambos o ninguno **no se procesan** hasta clasificarlos (por ejemplo `PR`, de `EAPR`, que tuvo
+una reserva afectada en el incidente). La app tiene un modo **FITS / GRUPOS / AMBOS** (por defecto FITS): un solo Service Status alimenta los dos, con una
+fila por combinación y tipo (columna `TIPO` en el Sheet). Detalle en el README. La separación deja listo el camino para actualizar FITS ahora y GRUPOS cuando
+Tourplan corrija el bug de versión, o para probarlos por separado. **Cambia la alternativa A**: ya no hace falta excluir por estado `KK`; alcanza con no
+correr el modo GRUPOS.

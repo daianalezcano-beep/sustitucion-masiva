@@ -126,5 +126,68 @@ class BookingStatusCancelado(unittest.TestCase):
                 browser.close()
 
 
+DEPARTAMENTOS = ["All", "", "AC - Accounts", "FI - Fit´ Bookings", "FG - GRUPOS en FITS", "GP - Groups", "GR - Groups",
+                 "PE-Promocion Comercial Emisivo", "PR-PromocionComercialReceptivo"]
+
+
+def html_department(nombres):
+    items = "".join(f'<li class="list-row"><label class="tpcheckbox"><input type="checkbox" checked><i></i></label>'
+                    f'<label class="tplabel-list">{n}</label></li>' for n in nombres)
+    return f'<div><div class="legend">Booking Status</div><ul><li class="list-row"><input type="checkbox" checked><i></i><label class="tplabel-list">X</label></li></ul></div><div><div class="legend">Department</div><ul>{items}</ul></div>'
+
+
+@unittest.skipIf(sd is None or not os.path.exists(CHROMIUM), "falta playwright o chromium")
+class FiltroDepartment(unittest.TestCase):
+    def setUp(self):
+        self.pw = sync_playwright().start()
+        self.browser = self.pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+        pagina = self.browser.new_page()
+        pagina.set_content(html_department(DEPARTAMENTOS))
+        self.d = Driver(pagina)
+        self.guardado = (sd.dialog_subs, sd.pausa)
+        sd.dialog_subs, sd.pausa = (lambda d: "__DOC__"), (lambda s: None)
+
+    def tearDown(self):
+        sd.dialog_subs, sd.pausa = self.guardado
+        self.browser.close()
+        self.pw.stop()
+
+    def tildados(self):
+        return [sd.codigo_department(e["texto"]) or "(vacío)" for e in self.d.execute_script(sd.JS_ESTADOS, "__DOC__", "department")
+                if e["tilda"] and e["texto"].lower() != "all"]
+
+    def test_el_codigo_sale_del_texto_con_o_sin_espacios(self):
+        self.assertEqual([sd.codigo_department(t) for t in ("GP - Groups", "PE-Promocion Comercial", "", "All")], ["GP", "PE", "", ""])
+
+    def test_solo_los_codigos_pedidos_quedan_tildados(self):
+        tildados = sd.fijar_departamentos(self.d, {"FI", "FG", "PE"})
+        self.assertEqual(sorted(tildados), ["FG", "FI", "PE"])
+        self.assertEqual(sorted(self.tildados()), ["FG", "FI", "PE"])                    # el ítem vacío, AC, GP, GR y PR quedaron sin tildar
+        sd.fijar_departamentos(self.d, {"GP", "GR"})
+        self.assertEqual(sorted(self.tildados()), ["GP", "GR"])
+
+    def test_sin_codigos_se_tilda_todo(self):
+        sd.fijar_departamentos(self.d, {"GP"})
+        sd.fijar_departamentos(self.d, None)
+        self.assertEqual(len(self.tildados()), len(DEPARTAMENTOS) - 1)                    # todos menos 'All'
+
+    def test_si_ya_esta_como_se_pide_no_clickea(self):
+        sd.fijar_departamentos(self.d, {"GP", "GR"})
+        clicks = []
+        original = self.d.execute_script
+        self.d.execute_script = lambda src, *a: (clicks.append(1) if src is sd.JS_CLICK_ESTADOS_IDX else None) or original(src, *a)
+        sd.fijar_departamentos(self.d, {"GP", "GR"})
+        self.assertEqual(clicks, [])
+
+    def test_sin_el_grupo_o_sin_ninguno_de_los_pedidos_es_error(self):
+        with self.assertRaises(sd.ErrorFila) as cm:
+            sd.fijar_departamentos(self.d, {"ZZ"})
+        self.assertIn("Ningún Department", cm.exception.detalle)
+        self.d.pagina.set_content(html_booking(["All", "OK"]))
+        with self.assertRaises(sd.ErrorFila) as cm:
+            sd.fijar_departamentos(self.d, {"GP"})
+        self.assertIn("No encontré el grupo Department", cm.exception.detalle)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -30,6 +30,7 @@ from common import comparador
 from common import logica as L
 from common import pre_reporte
 from common import reporte_entrada
+from common import tipo_reserva as T
 from common import ejecucion as E
 from common import user_config
 from common.sheets_batch import agregar_filas_batch, asegurar_columnas_tolerante
@@ -42,8 +43,11 @@ SALIDA = REPO_ROOT / "salida"
 PRODUCCION_URL = "https://tourplannx.eurotur.com.ar/tourplannx"
 CLAVE_SHEET = "substitute_doble"      # clave de la URL del Sheet en ~/.tourplan-nx-app/config.json
 ETIQUETA_MODO = {"lectura": "Solo revisar", "aplicar": "Aplicar cambios"}
-COLS_HOJA = ["LOCATION", "SUPPLIER", "SERVICE TYPE", "CODIGO", "ESTADO"]
+COLS_HOJA = ["LOCATION", "SUPPLIER", "SERVICE TYPE", "CODIGO", "TIPO", "ESTADO"]
 HISTORIAL_MAX = 15
+TIPO_ETIQUETA = {T.TIPO_FITS: "FITS", T.TIPO_GRUPOS: "GRUPOS", T.TIPO_AMBOS: "AMBOS"}
+TIPO_DESCRIPCION = {T.TIPO_FITS: "Reservas individuales (por Department).", T.TIPO_GRUPOS: "Reservas de grupo (por Department).",
+                    T.TIPO_AMBOS: "Las dos, cada una con su filtro."}
 DESCRIPCION_MODO = {"lectura": "Lectura. No modifica nada en Tourplan.", "aplicar": "Modifica reservas reales en Tourplan."}
 
 
@@ -72,7 +76,9 @@ def _refrescar_conteo(estado, sheet_url, hoja="SUBSTITUTE"):
     try:
         ws = conectar_sheets(sheet_url, hoja, user_config.CREDENTIALS_PATH, user_config.TOKEN_PATH)
         filas, _ = cargar_sheet(ws)
+        filas = [L.canonizar_fila(f, COLS_HOJA) for f in filas]
         estado["conteo"] = E.contar_estados(filas)
+        estado["pend_tipo"] = E.contar_pendientes_por_tipo(filas)
         estado["conteo_error"] = None
     except Exception as e:      # un fallo de refresco no debe romper la app ni una corrida en curso
         estado["conteo_error"] = str(e)
@@ -109,9 +115,10 @@ def _verificar_pre(p):
     except Exception as e:
         return f"No pude leer el Sheet para verificar el PRE: {e}", None
     pendientes = [f for f in filas if E.clasificar_estado(f.get("ESTADO")) == "Pendiente"
+                  and T.normalizar_tipo(f.get("TIPO")) is not None and T.fila_corresponde(T.normalizar_tipo(f.get("TIPO")), p["tipo_reservas"])
                   and (not p["fila"] or f.get("__row_idx__") == p["fila"])]
     if not pendientes:
-        return "No hay filas PENDIENTES para procesar (revisá la hoja o el número de fila).", None
+        return f"No hay filas PENDIENTES de tipo {p['tipo_reservas']} para procesar (revisá la hoja, el tipo o el número de fila).", None
     faltan = pre_reporte.combinaciones_faltantes(filas_pre, pendientes, datetime.combine(p["desde"], datetime.min.time()),
                                                  datetime.combine(p["hasta"], datetime.min.time()))
     if faltan:
@@ -183,18 +190,21 @@ def _leer_hoja(sheet_url):
 def _analizar_reporte(contenido, sheet_url):
     filas = reporte_entrada.leer_reporte(contenido)
     _, en_hoja_filas = _leer_hoja(sheet_url)
-    en_hoja = {L.clave_combinacion(f): f.get("ESTADO", "") for f in en_hoja_filas}
+    en_hoja = {L.clave_fila(f): f.get("ESTADO", "") for f in en_hoja_filas}
     plan = reporte_entrada.armar_plan(filas, _tabla_provisorios(), en_hoja=en_hoja)
     plan["pendientes_en_hoja"] = sum(1 for f in en_hoja_filas if E.clasificar_estado(f.get("ESTADO")) == "Pendiente")
     plan["conteo"] = E.contar_estados(en_hoja_filas)         # la hoja ya se leyó: de paso se actualiza la cola de trabajo
+    plan["pend_tipo"] = E.contar_pendientes_por_tipo(en_hoja_filas)
     return plan
 
 def _cargar_a_la_hoja(plan, sheet_url):
     """Agrega las combinaciones a la hoja SUBSTITUTE como PENDIENTE. Vuelve a leer la hoja justo antes para no duplicar
     lo que otra persona haya cargado mientras tanto. Devuelve la cantidad escrita."""
     ws, filas = _leer_hoja(sheet_url)
-    ya = {L.clave_combinacion(f) for f in filas}
-    nuevas = [f for f in reporte_entrada.filas_para_hoja(plan["a_cargar"]) if L.clave_combinacion(f) not in ya]
+    ya = {L.clave_fila(f) for f in filas}
+    # una fila de la hoja sin TIPO (anterior a esa columna) cubre a los dos tipos
+    nuevas = [f for f in reporte_entrada.filas_para_hoja(plan["a_cargar"])
+              if L.clave_fila(f) not in ya and L.clave_fila(f)[:4] + ("",) not in ya]
     asegurar_columnas_tolerante(ws, COLS_HOJA)
     return agregar_filas_batch(ws, ws.row_values(1), nuevas)
 
@@ -352,8 +362,9 @@ def _insignia(texto, clase):
 
 
 def _pendientes(estado):
-    """Filas PENDIENTE del Sheet según la última lectura de la cola (None si todavía no se leyó)."""
-    return (estado.get("conteo") or {}).get("Pendiente")
+    """Filas PENDIENTE del Sheet que procesa el tipo de reservas elegido (FITS / GRUPOS / AMBOS), según la última lectura de la cola;
+    None si todavía no se leyó."""
+    return E.pendientes_del_modo(estado.get("pend_tipo"), st.session_state.get("tipo_reservas", T.TIPO_FITS))
 
 
 # ── Configuración (una vez por PC) ──────────────────────────────────────────
@@ -515,7 +526,8 @@ def render_cargar_reporte(estado, bloqueado):
     if st.button("Analizar reporte", disabled=not (archivo and sheet_url) or bloqueado, key="analizar_reporte"):
         try:
             st.session_state["_plan_reporte"] = _analizar_reporte(archivo.getvalue(), sheet_url)
-            estado["conteo"], estado["conteo_error"] = st.session_state["_plan_reporte"]["conteo"], None
+            plan_nuevo = st.session_state["_plan_reporte"]
+            estado["conteo"], estado["pend_tipo"], estado["conteo_error"] = plan_nuevo["conteo"], plan_nuevo["pend_tipo"], None
             st.rerun()          # la cola de trabajo (arriba) ya muestra lo que tiene la hoja
         except Exception as e:      # un archivo que no es el reporte, o un Sheet inaccesible, no debe romper la app
             st.session_state["_plan_reporte"] = None
@@ -541,6 +553,9 @@ def render_cargar_reporte(estado, bloqueado):
                        "esas reservas quedarían sin procesar.")
     if plan.get("pendientes_en_hoja"):
         st.warning(f"La hoja ya tiene {plan['pendientes_en_hoja']} fila(s) PENDIENTE: al ejecutar se van a procesar junto con las que cargues ahora.")
+    if r.get("Líneas de Department sin clasificar"):
+        st.warning(f"{r['Líneas de Department sin clasificar']} línea(s) son de un Department sin clasificar como FITS o GRUPOS "
+                   "(PR, BO, CF, FL, SL, US, AC, RD o vacío): no se cargan, están en Descartadas. Se clasifican en common/tipo_reserva.py.")
     if r["Líneas incompletas"]:
         st.warning(f"{r['Líneas incompletas']} línea(s) del reporte tienen Location, Supplier, Service u Option vacíos y se ignoraron.")
     cuentas = {"cargar": len(plan["a_cargar"]), "descartadas": len(plan["descartadas"])}
@@ -579,7 +594,7 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo):
     elif p["fila"]:
         items.append(("ok", f"Se va a procesar solo la fila {p['fila']} del Sheet"))
     else:
-        items.append(("ok" if pend > 0 else "no", f"Combinaciones pendientes en el Sheet: {pend}"))
+        items.append(("ok" if pend > 0 else "no", f"Combinaciones pendientes en el Sheet ({p['tipo_reservas']}): {pend}"))
         if pend == 0:
             faltan.append("combinaciones pendientes")
     error_rango = L.validar_rango(datetime.combine(p["desde"], datetime.min.time()) if p["desde"] else None,
@@ -628,6 +643,10 @@ def render_ejecutar(estado):
         _seccion(2, "Modo y fechas")
         modo = st.radio("Modo", ["lectura", "aplicar"], key="modo", horizontal=True, disabled=bloqueado, label_visibility="collapsed",
                         format_func=lambda m: ETIQUETA_MODO[m], captions=[DESCRIPCION_MODO["lectura"], DESCRIPCION_MODO["aplicar"]])
+        tipo_reservas = st.radio("Tipo de reservas", list(T.MODOS), key="tipo_reservas", horizontal=True, disabled=bloqueado,
+                                 format_func=lambda t: TIPO_ETIQUETA[t], captions=[TIPO_DESCRIPCION[t] for t in T.MODOS],
+                                 help="Separa las reservas individuales (FITS) de las de grupo por su Department en Tourplan. Cada combinación "
+                                      "del Sheet tiene su TIPO: en FITS o en GRUPOS solo se procesan las filas de ese tipo; en AMBOS, todas.")
         c1, c2 = st.columns(2)
         desde = c1.date_input("Servicios desde", value=hoy + timedelta(days=1), min_value=date(2000, 1, 1), max_value=date(2099, 12, 31),
                               format="DD/MM/YYYY", disabled=bloqueado, key="desde", help="Obligatoria: se ingresa en cada corrida.")
@@ -654,7 +673,8 @@ def render_ejecutar(estado):
 
         usuario, password = user_config.tp_credenciales_default()
         p = {"modo": modo, "desde": desde, "hasta": hasta, "sheet_url": _sheet_url_guardada(), "base_url": base_url, "fila": int(fila),
-             "confirmar_ok": False, "usuario": usuario, "password": password, "pre_contenido": pre.getvalue() if pre else None}
+             "confirmar_ok": False, "usuario": usuario, "password": password, "pre_contenido": pre.getvalue() if pre else None,
+             "tipo_reservas": tipo_reservas}
 
         _seccion(4, "Ejecutar")
         confirmo = False
@@ -667,6 +687,9 @@ def render_ejecutar(estado):
         st.markdown('<ul class="sd-reqs">' + "".join(f'<li class="{"ok" if e == "ok" else "no"}"><span>{simbolo[e]}</span><span>{_h(t)}</span></li>'
                                                       for e, t in items) + "</ul>", unsafe_allow_html=True)
         errores = E.validar_parametros(p)
+        sin_tipo = (estado.get("pend_tipo") or {}).get("", 0)
+        if sin_tipo and tipo_reservas != T.TIPO_AMBOS:
+            st.caption(f"ℹ️ Hay {sin_tipo} fila(s) PENDIENTE sin TIPO (cargadas antes de esta columna): solo se procesan en el tipo AMBOS.")
         for aviso in E.advertencias(p):
             st.caption(f"⚠️ {aviso}")
         c1, c2, _ = st.columns([2, 1, 3])

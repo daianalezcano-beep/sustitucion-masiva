@@ -26,6 +26,13 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
   31/12/2049), URL de Tourplan, "solo la fila nº" para probar una combinación.
 - **Modo aplicar:** la app ya no pide confirmación manual (se quitó el checkbox): las verificaciones del script (provisorio libre antes y después, foto original vs. final) la reemplazan. Con `TOURPLAN_CONFIRMAR_OK=1` (solo desde la consola) el script se detiene **una sola vez por combinación**, antes del OK de la ida, y la app muestra la pregunta con
   **Continuar / Cancelar** (y la captura del modal). La vuelta se hace sola: frenar entre ida y vuelta dejaría reservas en el provisorio.
+- **Tipo de reservas (FITS / GRUPOS / AMBOS):** la hoja `SUBSTITUTE` tiene una columna `TIPO` (la app la crea si falta) y el script aplica el filtro
+  **Department** de Substitute Service según el tipo de cada fila. El Department es las letras 3 y 4 de la Reference (`EAGP...` = `GP`). La
+  tabla (en `common/tipo_reserva.py`, tomada de la configuración de Tourplan): FITS = `FG FI FM FT MI OP PE PI PU`; GRUPOS = `GP GR IN`;
+  **sin clasificar** (marcados para ambos o para ninguno: `BO CF FL PR SL US AC RD` y el vacío) = no se procesan hasta clasificarlos
+  (`PR` es el de `EAPR`). Una combinación con reservas de los dos tipos son dos filas. En el provisorio se miran todos los Department. Después
+  de leer Results se verifica que ninguna reserva sea de un Department fuera del filtro (si no, `ERROR: Results`). Las filas sin `TIPO` (anteriores
+  a la columna) solo se procesan en AMBOS, con los Department clasificados. El PRE se verifica por tipo.
 - **Cargar combinaciones desde un reporte de Tourplan:** sección 1 del paso Ejecutar (opción «Cargar un reporte nuevo»). Se sube el reporte **Service Status** (CSV); la app saca los servicios
   cancelados (`CX`), deja una línea por combinación (Location + Supplier + Service Type + Option), descarta las que no tienen provisorio, ya están en la
   hoja o tienen código genérico (`700` o `600` + tres letras, ej. `700GUI`: valor cero que se manualiza), y muestra una vista previa (combinaciones, reservas, tiempo estimado, rango de fechas). **Solo al confirmar** las agrega a `SUBSTITUTE` como

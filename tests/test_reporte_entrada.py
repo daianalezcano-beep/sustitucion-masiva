@@ -59,6 +59,33 @@ class ReporteEntrada(unittest.TestCase):
         self.assertEqual(sorted(genericos), ["600TRA", "700GUI"])                                      # mayúsculas/minúsculas: 700gui = 700GUI
         self.assertIn("Código genérico", genericos["700GUI"])
 
+    def test_separa_cada_combinacion_en_fits_y_grupos_por_el_department_de_la_reference(self):
+        lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Sanchez\n"      # FI: FITS
+                  "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAGP9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"      # GP: GRUPOS
+                  "OT,1SANC9,30-Oct-2026,27-May-2026,GU,BUE,CT3ID,C x2,TDGR9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"      # TD + GR: GRUPOS
+                  "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,D x2,EAFG9,OK,2,1,0,0,0,A,V,V,,Sanchez\n")     # FG: FITS (individuales)
+        p = R.armar_plan(R.leer_reporte((CAB + "\n" + lineas).encode("utf-8")), PROV)
+        self.assertEqual([(c["TIPO"], c["RESERVAS"]) for c in p["a_cargar"]], [("FITS", 2), ("GRUPOS", 2)])
+        self.assertEqual(R.filas_para_hoja(p["a_cargar"])[1]["TIPO"], "GRUPOS")
+
+    def test_un_department_sin_clasificar_no_se_procesa(self):
+        lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EAPR9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"      # PR: marcado para ambos
+                  "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Sanchez\n")
+        p = R.armar_plan(R.leer_reporte((CAB + "\n" + lineas).encode("utf-8")), PROV)
+        self.assertEqual([c["TIPO"] for c in p["a_cargar"]], ["FITS"])
+        self.assertEqual(p["resumen"]["Líneas de Department sin clasificar"], 1)
+        motivo = p["descartadas"][0]["MOTIVO"]
+        self.assertIn("Department sin clasificar (PR)", motivo)
+
+    def test_en_hoja_distingue_el_tipo_y_una_fila_sin_tipo_cubre_a_los_dos(self):
+        lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Sanchez\n"
+                  "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAGP9,KK,2,1,0,0,0,A,V,V,,Sanchez\n")
+        filas = R.leer_reporte((CAB + "\n" + lineas).encode("utf-8"))
+        p = R.armar_plan(filas, PROV, en_hoja={("BUE", "1SANC9", "GU", "CT3ID", "FITS"): "OK"})
+        self.assertEqual([c["TIPO"] for c in p["a_cargar"]], ["GRUPOS"])                                # FITS ya está, GRUPOS no
+        p = R.armar_plan(filas, PROV, en_hoja={("BUE", "1SANC9", "GU", "CT3ID"): "OK"})                 # fila anterior a la columna TIPO
+        self.assertEqual((len(p["a_cargar"]), len(p["descartadas"])), (0, 2))
+
     def test_excluye_por_nombre_aunque_el_codigo_sea_otro(self):
         csv = (CAB + "\nOT,XYZ1,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Guía POR ASIGNAR\n").encode("utf-8")
         p = R.armar_plan(R.leer_reporte(csv), PROV)
@@ -72,7 +99,8 @@ class ReporteEntrada(unittest.TestCase):
     def test_filas_para_la_hoja_y_tiempo(self):
         p = self.plan()
         hoja = R.filas_para_hoja(p["a_cargar"])
-        self.assertEqual(hoja[0], {"LOCATION": "BUE", "SUPPLIER": "1SANC9", "SERVICE TYPE": "GU", "CODIGO": "CT3ID", "ESTADO": "PENDIENTE"})
+        self.assertEqual(hoja[0], {"LOCATION": "BUE", "SUPPLIER": "1SANC9", "SERVICE TYPE": "GU", "CODIGO": "CT3ID", "TIPO": "FITS",
+                           "ESTADO": "PENDIENTE"})
         # 75 fijos + (22 + 1.5*3 + 12*1)
         self.assertEqual(p["resumen"]["Segundos estimados"], int(75 + 22 + 4.5 + 12))
         self.assertEqual(R.segundos_estimados([]), 0)
@@ -84,7 +112,9 @@ class ReporteEntrada(unittest.TestCase):
         r = p["resumen"]
         self.assertEqual((r["Líneas del reporte"], r["Líneas excluidas (servicio cancelado)"]), (1595, 202))
         self.assertEqual(r["Líneas excluidas (proveedor por asignar)"], 628)
-        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (272, 745))       # la corrida real del 27/10 procesó 276 / 765: la diferencia son 4 combinaciones de código genérico (700GUI, etc.)
+        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (307, 737))       # una fila por combinación y TIPO (158 FITS + 149 GRUPOS); la corrida real del 27/10 procesó 276 combinaciones
+        self.assertEqual(r["Líneas de Department sin clasificar"], 8)                              # las de EAPR (Department PR)
+        self.assertEqual(sorted({c["TIPO"] for c in p["a_cargar"]}), ["FITS", "GRUPOS"])
         self.assertTrue(all(c["SUPPLIER"] != "GUIAPO" for c in p["a_cargar"]))
         self.assertEqual(r["Desde"].strftime("%d/%m/%Y"), "28/10/2026")
 

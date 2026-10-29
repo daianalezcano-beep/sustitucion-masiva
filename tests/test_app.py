@@ -182,15 +182,41 @@ class App(unittest.TestCase):
 
     def test_la_cola_se_lee_sola_al_abrir_la_pagina(self):
         self.configurar()
-        filas = [{"ESTADO": "PENDIENTE"}, {"ESTADO": "PENDIENTE"}, {"ESTADO": "OK"}]
+        filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}, {"ESTADO": "PENDIENTE", "TIPO": "FITS"}, {"ESTADO": "OK", "TIPO": "FITS"}]
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
         with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
-             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO"])):
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
             at.run()
         self.assertFalse(at.exception)
         cola = next(m.value for m in at.markdown if 'class="sd-cola"' in m.value)
         self.assertIn('<span class="n">2</span><span class="l">Pendiente', cola)                       # sin tocar Refrescar
-        self.assertIn("Combinaciones pendientes en el Sheet: 2", self.textos(at))
+        self.assertIn("Combinaciones pendientes en el Sheet (FITS): 2", self.textos(at))
+
+    def test_tipo_de_reservas_filtra_los_pendientes_y_avisa_de_las_filas_sin_tipo(self):
+        self.configurar()
+        filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}, {"ESTADO": "PENDIENTE", "TIPO": "GRUPOS"}, {"ESTADO": "PENDIENTE", "TIPO": "GRUPOS"},
+                 {"ESTADO": "PENDIENTE", "TIPO": ""}]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
+            at.run()
+            self.assertEqual(at.radio(key="tipo_reservas").value, "FITS")                              # por defecto, el más seguro
+            self.assertIn("Combinaciones pendientes en el Sheet (FITS): 1", self.textos(at))
+            self.assertIn("1 fila(s) PENDIENTE sin TIPO", " ".join(c.value for c in at.caption))
+            at.radio(key="tipo_reservas").set_value("GRUPOS").run()
+            self.assertIn("Combinaciones pendientes en el Sheet (GRUPOS): 2", self.textos(at))
+            at.radio(key="tipo_reservas").set_value("AMBOS").run()
+            self.assertIn("Combinaciones pendientes en el Sheet (AMBOS): 4", self.textos(at))        # incluye la fila sin TIPO
+            self.assertNotIn("sin TIPO", " ".join(c.value for c in at.caption))
+        self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
+
+    def test_el_tipo_de_reservas_viaja_al_script(self):
+        self.configurar()
+        at = self.app()
+        at.radio(key="tipo_reservas").set_value("GRUPOS").run()
+        with mock.patch("subprocess.Popen", ProcFalso):
+            self.boton(at, "ejecutar_revision").click().run()
+        self.assertEqual(ProcFalso.llamada[1]["env"]["TOURPLAN_TIPO_RESERVAS"], "GRUPOS")
 
     def test_la_cola_avisa_cuantas_se_suman_al_confirmar_el_reporte(self):
         self.configurar()

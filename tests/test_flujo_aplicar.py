@@ -417,7 +417,7 @@ class FiltroPorCampo(unittest.TestCase):
     def setUp(self):
         names = ("preparar_pantalla", "completar_lista", "completar_code", "escribir_fecha", "destildar_booking_status",
                  "fijar_service_status", "buscar", "esperar_resultados", "valor_lista", "valor_code", "descripcion_code",
-                 "valor_fecha")
+                 "valor_fecha", "fijar_departamentos", "leer_resultados", "leer_contadores")
         self.guardado = {n: getattr(sd, n) for n in names}
         self.llamadas = []
         self.pantalla = {1: "AAA - Otra", 2: "", 3: "", "code": "", "desc": "", "desde": None, "hasta": None}
@@ -447,16 +447,45 @@ class FiltroPorCampo(unittest.TestCase):
         sd.fijar_service_status = lambda d, nombre=None, nth=0: ll.append(f"servicestatus {nombre}")
         sd.buscar = lambda d: ll.append("buscar")
         sd.esperar_resultados = lambda d, token_previo=None: (0, 0)
+        sd.fijar_departamentos = lambda d, codigos=None: (ll.append(f"departments {'todos' if codigos is None else sorted(codigos)}"),
+                                                          ["X"] if codigos is None else sorted(codigos))[1]
 
     def tearDown(self):
         for n, f in self.guardado.items():
             setattr(sd, n, f)
 
-    def consulta(self, loc="BUE", stype="GU", sup="1ACOS1", cod="700GUI", ss=None):
-        return sd.consultar(None, {}, loc, stype, sup, cod, datetime(2026, 11, 1), datetime(2049, 12, 31), service_status=ss)
+    def consulta(self, loc="BUE", stype="GU", sup="1ACOS1", cod="700GUI", ss=None, ctx=None):
+        return sd.consultar(None, {} if ctx is None else ctx, loc, stype, sup, cod, datetime(2026, 11, 1), datetime(2049, 12, 31), service_status=ss)
 
     def completados(self):
         return [x for x in self.llamadas if x.split()[0] in ("lista", "code", "fecha")]
+
+    def test_sin_departamentos_en_el_contexto_no_toca_el_filtro_department(self):
+        self.consulta()
+        self.assertFalse(any(x.startswith("departments") for x in self.llamadas))
+
+    def test_aplica_el_filtro_department_del_tipo_de_la_fila(self):
+        self.consulta(ctx={"departamentos": frozenset({"GP", "GR"})})
+        self.assertIn("departments ['GP', 'GR']", self.llamadas)
+        self.assertLess(self.llamadas.index("departments ['GP', 'GR']"), self.llamadas.index("buscar"))     # antes de buscar
+
+    def test_el_provisorio_se_mira_con_todos_los_department(self):
+        self.consulta(sup="1EURO1", cod="000000", ctx={"departamentos": frozenset({"GP", "GR"})})
+        self.assertIn("departments todos", self.llamadas)
+
+    def test_results_con_una_reserva_de_otro_department_es_error(self):
+        fila = lambda ref: {"location": "BUE", "service": "GU", "supplier": "1ACOS1", "code": "700GUI", "booking_ref": ref, "status": "OT",
+                            "date": "01/Nov/2026", "pudo_raw": "", "pudo_filas": []}
+        sd.esperar_resultados = lambda d, token_previo=None: (2, 0)
+        sd.leer_contadores = lambda d: (2, 0)
+        sd.leer_resultados = lambda d, found: ([fila("EAFI100"), fila("EAGP200")], "completa")
+        ctx = {"departamentos": frozenset({"FI", "FT"})}
+        with self.assertRaises(sd.ErrorFila) as cm:
+            self.consulta(ctx=ctx)
+        self.assertIn("Department", cm.exception.detalle)
+        self.assertIn("EAGP200", cm.exception.detalle)
+        sd.leer_resultados = lambda d, found: ([fila("EAFI100"), fila("EAFT200")], "completa")
+        self.assertEqual(self.consulta(ctx=ctx)["found"], 2)                       # todas del tipo: pasa
 
     def test_pantalla_nueva_completa_todo(self):
         self.consulta()
@@ -643,7 +672,7 @@ class MainOrquestador(unittest.TestCase):
         self.escrituras, self.llamadas = [], []
         self.guardado = {k: getattr(sd, k) for k in ("MODO", "SHEET_URL", "FECHA_DESDE", "FECHA_HASTA", "FILA",
                                                        "cargar_hojas", "actualizar_fila_sheet", "procesar_fila_lectura",
-                                                       "procesar_fila_aplicar", "chequear_abort", "exigir_sin_pendientes")}
+                                                       "procesar_fila_aplicar", "chequear_abort", "exigir_sin_pendientes", "TIPO_RESERVAS")}
         self.tpg = {k: getattr(sd.tp, k) for k in ("crear_driver", "login", "logout", "preparar_carpeta_corrida", "USERNAME", "PASSWORD")}
         sd.SHEET_URL, sd.FECHA_DESDE, sd.FECHA_HASTA, sd.FILA, sd.MODO = "x", "01/11/26", "31/12/49", "", "lectura"
         sd.tp.USERNAME, sd.tp.PASSWORD = "u", "p"
@@ -692,6 +721,29 @@ class MainOrquestador(unittest.TestCase):
             self.assertIn("Código genérico", [v for i, v in self.escrituras if i == 2][0]["OBSERVACIONES"])
             self.assertNotEqual(estados.get(4), "DESCARTADA", modo)                          # 700GUIA (4 letras) sí se procesa
             self.assertTrue(any(i == 4 and v.get("OBSERVACIONES") for i, v in self.escrituras), modo)
+
+    def test_tipo_de_reservas_procesa_solo_las_filas_del_modo_y_filtra_por_department(self):
+        def fila_(idx, cod, tipo):
+            return {"__row_idx__": idx, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": cod, "TIPO": tipo, "ESTADO": "PENDIENTE"}
+        filas = [fila_(2, "C1", "FITS"), fila_(3, "C1", "GRUPOS"), fila_(4, "C2", ""), fila_(5, "C3", "grupo"), fila_(6, "C4", "RARO")]
+        sd.cargar_hojas = lambda: (object(), filas, sd.COLS_INPUT + ["TIPO", "OBSERVACIONES", "TIMESTAMP"], None, None)
+        vistos = []
+        sd.procesar_fila_lectura = lambda d, ctx, row: (vistos.append((row["__row_idx__"], ctx["departamentos"])), ("obs", [], 1, {}))[1]
+        from common import tipo_reserva as T
+        esperado = {"FITS": [(2, T.DEPARTAMENTOS_FITS)], "GRUPOS": [(3, T.DEPARTAMENTOS_GRUPOS), (5, T.DEPARTAMENTOS_GRUPOS)],
+                    "AMBOS": [(2, T.DEPARTAMENTOS_FITS), (3, T.DEPARTAMENTOS_GRUPOS), (4, T.DEPARTAMENTOS_FITS | T.DEPARTAMENTOS_GRUPOS),
+                              (5, T.DEPARTAMENTOS_GRUPOS)]}
+        for modo, filas_esperadas in esperado.items():
+            vistos.clear()
+            self.escrituras.clear()
+            sd.TIPO_RESERVAS = modo
+            sd.main()
+            self.assertEqual(vistos, filas_esperadas, modo)
+            estados = {i: v.get("ESTADO") for i, v in self.escrituras if v.get("ESTADO")}
+            self.assertEqual(estados.get(6), "ERROR: tipo inválido", modo)             # un TIPO que no se entiende se marca, no se procesa
+        sd.TIPO_RESERVAS = "NINGUNO"
+        with self.assertRaises(SystemExit):
+            sd.main()
 
     def test_si_el_login_falla_no_se_hace_logout(self):
         def login_roto(d):

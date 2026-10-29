@@ -44,6 +44,21 @@ class Pre(unittest.TestCase):
         self.assertEqual(P.combinaciones_faltantes(filas, pend, datetime(2026, 10, 1), datetime(2026, 10, 31)), [])
         self.assertEqual(len(P.combinaciones_faltantes(filas, pend, datetime(2026, 11, 1), datetime(2049, 12, 31))), 1)
 
+    def test_el_pre_tiene_que_cubrir_el_tipo_de_la_fila(self):
+        # PRE con una sola línea de FITS (EAFT...) para BUE/1FAGA1/GU/AEHTID y otra de grupos (EAGP...) para CT4ID
+        pre = CAB + "\n" + (
+            "HOLB,H,1FAGA1,F,BUE,GU,AEHTID,TF,,21-Oct-2026,20,0,1,20,1,1,USD,75.97,99.30,99.30,EAFT246321,X,,OK,21-Oct-2026,1\n"
+            "RIV1,R,1FAGA1,F,BUE,GU,CT4ID,CT,,26-Oct-2026,40,0,1,40,1,1,USD,115.38,164.99,206.24,EAGP246528,Y,,KK,25-Oct-2026,2\n")
+        filas = P.leer_pre(pre.encode())
+        fits = dict(fila("BUE", "1FAGA1", "GU", "AEHTID"), TIPO="FITS")
+        grupos = dict(fila("BUE", "1FAGA1", "GU", "AEHTID"), TIPO="GRUPOS")
+        self.assertEqual(P.combinaciones_faltantes(filas, [fits]), [])
+        self.assertEqual(P.combinaciones_faltantes(filas, [grupos]), [("BUE", "1FAGA1", "GU", "AEHTID", "GRUPOS")])   # no hay líneas de grupo
+        sin_tipo = fila("BUE", "1FAGA1", "GU", "AEHTID")
+        self.assertEqual(P.combinaciones_faltantes(filas, [sin_tipo]), [])                                          # una fila sin TIPO: cualquiera sirve
+        self.assertEqual(P.combinaciones_faltantes(filas, [dict(fila("BUE", "1FAGA1", "GU", "CT4ID"), TIPO="FITS")]),
+                         [("BUE", "1FAGA1", "GU", "CT4ID", "FITS")])
+
     def test_guardar_y_ultimo(self):
         d = tempfile.mkdtemp()
         self.assertIsNone(P.ultimo_pre(os.path.join(d, "no_existe")))

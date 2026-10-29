@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from common import logica as L
+from common import tipo_reserva as T
 
 ARCHIVO_PENDIENTE = "confirmacion_pendiente.txt"
 ARCHIVO_RESPUESTA = "confirmacion_respuesta.txt"
@@ -40,6 +41,8 @@ def validar_parametros(p):
             errores.append(f"Falta {nombre}" + (" (cargala en ⚙️ Configuración)." if clave != "base_url" else "."))
     if p.get("modo") not in ("lectura", "aplicar"):
         errores.append("Elegí un modo.")
+    if p.get("tipo_reservas", T.TIPO_AMBOS) not in T.MODOS:
+        errores.append("Elegí el tipo de reservas (FITS, GRUPOS o AMBOS).")
     if p.get("modo") == "aplicar" and not p.get("pre_contenido"):
         errores.append("Falta adjuntar el reporte PRE (Product Analysis exportado antes de la corrida): es obligatorio para aplicar.")
     error_rango = L.validar_rango(_como_datetime(p.get("desde")), _como_datetime(p.get("hasta")))
@@ -68,6 +71,7 @@ def armar_entorno(p, base_env, repo_root, run_dir, ss_dir, stop_file, credential
         "TOURPLAN_FECHA_HASTA": L.fmt_ddmmyy(_como_datetime(p["hasta"])),
         "TOURPLAN_FILA": str(int(p["fila"])) if int(p.get("fila") or 0) > 0 else "",
         "TOURPLAN_PUDO_SERVICE_TYPES": ",".join(t.upper() for t in re.split(r"[,;\s]+", p.get("pudo_service_types") or "") if t),
+        "TOURPLAN_TIPO_RESERVAS": p.get("tipo_reservas") or T.TIPO_AMBOS,
         "TOURPLAN_CONFIRMAR_OK": "1" if p.get("confirmar_ok", True) else "0",
         "TOURPLAN_CONFIRM_DIR": str(run_dir),
         "TOURPLAN_HEADLESS": "1" if headless else "0",
@@ -100,6 +104,24 @@ def contar_estados(filas, columna="ESTADO"):
     for f in filas:
         conteo[clasificar_estado(f.get(columna))] += 1
     return conteo
+
+
+def contar_pendientes_por_tipo(filas, columna="ESTADO"):
+    """Filas PENDIENTE de la hoja según su TIPO: {'FITS': n, 'GRUPOS': n, '': n (sin TIPO: anteriores a esa columna)}."""
+    conteo = {T.TIPO_FITS: 0, T.TIPO_GRUPOS: 0, "": 0}
+    for f in filas:
+        if clasificar_estado(f.get(columna)) == "Pendiente":
+            tipo = T.normalizar_tipo(f.get("TIPO"))
+            if tipo in conteo:
+                conteo[tipo] += 1
+    return conteo
+
+
+def pendientes_del_modo(por_tipo, modo):
+    """Cuántas filas PENDIENTE procesa un modo (FITS / GRUPOS / AMBOS) según contar_pendientes_por_tipo (None si no se conoce)."""
+    if por_tipo is None:
+        return None
+    return sum(n for tipo, n in por_tipo.items() if T.fila_corresponde(tipo, modo))
 
 
 # ── Confirmación antes de cada OK ───────────────────────────────────────────

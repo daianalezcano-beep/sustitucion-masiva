@@ -78,6 +78,7 @@ from selenium.webdriver.common.by import By
 from common import logica as L
 from common import tp_selenium as tp
 from common import ejecucion as E
+from common import tipo_reserva as T
 from common.reporte_entrada import CODIGO_GENERICO
 from common.abort import ABORT_EXIT_CODE, AbortadoPorUsuario, abort_solicitado, chequear_abort
 from common.sheets_batch import actualizar_columna_rango, agregar_filas_batch, asegurar_columnas_tolerante
@@ -88,6 +89,9 @@ from common.tp_selenium import dump, dump_html, esperar_fin_carga, jc, pausa, se
 
 # ── CONFIG ──
 MODO = os.environ.get("TOURPLAN_MODO", "lectura")
+# Tipo de reservas a procesar: FITS, GRUPOS o AMBOS. Cada fila del Sheet tiene su TIPO y se procesa con el filtro Department de ese tipo
+# (ver common/tipo_reserva.py); las filas anteriores a la columna TIPO (vacías) solo se procesan en AMBOS.
+TIPO_RESERVAS = os.environ.get("TOURPLAN_TIPO_RESERVAS", T.TIPO_AMBOS).strip().upper() or T.TIPO_AMBOS
 SHEET_URL = os.environ.get("TOURPLAN_SHEET_URL", "")
 HOJA = os.environ.get("TOURPLAN_HOJA", "SUBSTITUTE")
 HOJA_DET = os.environ.get("TOURPLAN_HOJA_DETALLE", "SUBSTITUTE_DETALLE")
@@ -502,6 +506,35 @@ def destildar_booking_status(driver, textos=BOOKING_STATUS_EXCLUIR):
     return texto, [e["texto"] for e in estados if e["tilda"] and e["texto"].lower() != "all"]
 
 
+def codigo_department(texto):
+    """'GP - Groups' -> 'GP'; 'PE-Promocion Comercial Emisivo' -> 'PE'; un ítem sin código (el vacío) -> ''."""
+    m = re.match(r"\s*([A-Za-z0-9]{2})\s*-", texto or "")
+    return m.group(1).upper() if m else ""
+
+
+def fijar_departamentos(driver, codigos=None):
+    """Filtro Department. Con `codigos` (conjunto de códigos de 2 letras): solo esos tildados; el ítem sin código y los demás quedan
+    destildados. Sin `codigos` (None): todos tildados (por ejemplo para mirar el provisorio, donde no se puede dejar nada de ningún
+    Department). Se tilda/destilda ítem por ítem, se relee y se verifica; 'All' lo maneja Tourplan y no se toca.
+    Devuelve los códigos tildados ('(vacío)' para el ítem sin código)."""
+    for _ in range(3):
+        items = driver.execute_script(JS_ESTADOS, dialog_subs(driver), "department")
+        if not items:
+            raise ErrorFila("ERROR: filtro de department", "No encontré el grupo Department")
+        deseado = [None if e["texto"].lower() == "all" else (True if codigos is None else codigo_department(e["texto"]) in codigos)
+                   for e in items]
+        cambiar = [i for i, (e, d) in enumerate(zip(items, deseado)) if d is not None and e["tilda"] != d]
+        if not cambiar:
+            tildados = [codigo_department(e["texto"]) or "(vacío)" for e, d in zip(items, deseado) if d]
+            if not tildados:
+                raise ErrorFila("ERROR: filtro de department", f"Ningún Department de {sorted(codigos)} está en el filtro "
+                                f"(hay: {[e['texto'] for e in items]})")
+            return tildados
+        driver.execute_script(JS_CLICK_ESTADOS_IDX, dialog_subs(driver), "department", cambiar)
+        time.sleep(0.3)
+    raise ErrorFila("ERROR: filtro de department", "No pude dejar el filtro Department como se pidió (quedó distinto tras 3 intentos)")
+
+
 # ── Results ──────────────────────────────────────────────────────────────────
 
 JS_TOKEN_RESULTADOS = """
@@ -785,10 +818,16 @@ def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, 
             fechas.append(escribir_fecha(driver, campo, dt))
     desde, hasta = fechas
     excluido, tildados = destildar_booking_status(driver)
+    # Department: el del tipo de la fila; en el provisorio, todos (si quedara algo ahí, de cualquier tipo, hay que verlo).
+    deps = None if cod == CODIGO_PROVISORIO else ctx.get("departamentos")
+    tildados_dep = fijar_departamentos(driver, deps) if "departamentos" in ctx else None
     fijar_service_status(driver, *(service_status or (None, 0)))
     marca("filtro")
+    texto_dep = ""
+    if tildados_dep is not None:
+        texto_dep = f"| Department: {'todos' if deps is None else ', '.join(sorted(tildados_dep))} "
     print(f"    Filtro OK: {ubic} | {srv} | {prv} | {cod} ({desc}) | {L.fmt_tp(desde)}–{L.fmt_tp(hasta)} "
-          f"| Booking Status sin '{excluido}' ({len(tildados)} tildados) "
+          f"| Booking Status sin '{excluido}' ({len(tildados)} tildados) {texto_dep}"
           f"| Service Status: {'todos menos ' + ', '.join(SERVICE_STATUS_EXCLUIDOS) if not service_status else 'solo ' + service_status[0]}"
           + (f" | sin recargar: {', '.join(mantenidos)}" if mantenidos else ""))
 
@@ -814,6 +853,11 @@ def consultar(driver, ctx, loc, stype, sup, cod, desde_dt, hasta_dt, leer=True, 
         if fuera:
             raise ErrorFila("ERROR: Results", f"Results trae filas que no son {loc}/{stype}/{sup}/{cod}: "
                             f"{[(f['location'], f['service'], f['supplier'], f['code']) for f in fuera]}")
+        if deps is not None:
+            ajenas = [f["booking_ref"] for f in filas if T.departamento_de(f["booking_ref"]) not in deps]
+            if ajenas:
+                raise ErrorFila("ERROR: Results", f"Results trae reservas de un Department que no está en el filtro "
+                                f"({', '.join(sorted(deps))}): {ajenas[:3]}")
         filas = [normalizar_fila(dict(f)) for f in filas]
     marca("leer")
     return {"found": found, "filas": filas, "modo": modo, "desc": desc}
@@ -1404,7 +1448,7 @@ def escribir_resultado_fila(ws, row_idx, columnas, estado=None, observaciones=No
     actualizar_fila_sheet(ws, row_idx, columnas, valores)
 
 
-CANON_INPUT = COLS_INPUT + [COL_OBS, COL_TS]
+CANON_INPUT = COLS_INPUT + [COL_OBS, COL_TS, "TIPO"]
 
 
 def cargar_hojas():
@@ -1481,6 +1525,9 @@ def main():
     print("=" * 70)
     if MODO not in ("lectura", "aplicar"):
         raise SystemExit(f"MODO='{MODO}' no válido: usar lectura o aplicar.")
+    if TIPO_RESERVAS not in T.MODOS:
+        raise SystemExit(f"TOURPLAN_TIPO_RESERVAS='{TIPO_RESERVAS}' no válido: usar FITS, GRUPOS o AMBOS.")
+    print(f"  Tipo de reservas: {TIPO_RESERVAS}")
     if MODO == "aplicar":
         print(f"⚠⚠⚠  MODO APLICAR: este script MODIFICA reservas en Tourplan ({tp.BASE_URL}).")
     if not SHEET_URL:
@@ -1520,6 +1567,20 @@ def main():
     if genericas:
         print(f"Filas DESCARTADA por código genérico (no se procesan): {len(genericas)}")
         unicas = [r for r in unicas if r not in genericas]
+    # Tipo de reservas: cada fila lleva su TIPO (FITS / GRUPOS; vacío = fila anterior a esa columna). Se procesan las del modo elegido.
+    del_modo, de_otro_tipo = [], 0
+    for r in unicas:
+        tipo = T.normalizar_tipo(r.get("TIPO"))
+        if tipo is None:
+            escribir_resultado_fila(ws, r["__row_idx__"], columnas, "ERROR: tipo inválido",
+                                    f"TIPO '{r.get('TIPO')}' no válido: debe ser FITS o GRUPOS (o vacío)")
+        elif T.fila_corresponde(tipo, TIPO_RESERVAS):
+            del_modo.append(r)
+        else:
+            de_otro_tipo += 1
+    if de_otro_tipo or len(del_modo) != len(unicas):
+        print(f"Filas PENDIENTE de otro tipo (no se procesan en el modo {TIPO_RESERVAS}; siguen PENDIENTE): {de_otro_tipo}")
+    unicas = del_modo
     if FILA:
         unicas = [r for r in unicas if str(r["__row_idx__"]) == FILA]
         print(f"TOURPLAN_FILA={FILA}: se procesa solo esa fila ({len(unicas)} encontrada(s) PENDIENTE).")
@@ -1536,7 +1597,7 @@ def main():
 
     ctx = {"corrida": corrida, "desde": desde, "hasta": hasta, "abierta": False,
            "panel_pendiente": PROBAR_PANEL and MODO == "lectura", "panel": None,
-           "ws_det": ws_det, "cols_det": cols_det, "provisorios_ok": set()}
+           "ws_det": ws_det, "cols_det": cols_det, "provisorios_ok": set(), "departamentos": None}
 
     print("\n⚠ Mientras corre, NO toques la ventana de Chrome (cualquier click a mano puede alterar la lectura).")
     driver = tp.crear_driver()
@@ -1555,8 +1616,9 @@ def main():
         for row in unicas:
             chequear_abort()
             idx = row["__row_idx__"]
+            ctx["departamentos"] = T.departamentos_para(T.normalizar_tipo(row.get("TIPO")))     # filtro Department de esta fila
             print(f"\n{'─' * 70}\nFila {idx}: {row.get('LOCATION')}/{row.get('SUPPLIER')}/"
-                  f"{row.get('SERVICE TYPE')}/{row.get('CODIGO')}")
+                  f"{row.get('SERVICE TYPE')}/{row.get('CODIGO')}" + (f" [{row.get('TIPO')}]" if row.get("TIPO") else ""))
             try:
                 if MODO == "aplicar":
                     estado, obs, found = procesar_fila_aplicar(driver, ctx, row)

@@ -34,6 +34,23 @@ class Parametros(unittest.TestCase):
         self.assertIn("PRE", errores[0])
         self.assertEqual(E.validar_parametros(params(modo="lectura")), [])        # en lectura no hace falta
 
+    def test_tipo_de_reservas(self):
+        self.assertEqual(E.validar_parametros(params(tipo_reservas="GRUPOS")), [])
+        self.assertTrue(any("tipo de reservas" in e for e in E.validar_parametros(params(tipo_reservas="OTRO"))))
+        self.assertEqual(E.validar_parametros(params()), [])                                    # sin el parámetro: AMBOS
+        env = E.armar_entorno(params(tipo_reservas="FITS"), {"PATH": "x"}, "/r", "/r/run", "/r/salida", "/r/stop", "/c.json", "/t.json")
+        self.assertEqual(env["TOURPLAN_TIPO_RESERVAS"], "FITS")
+        env = E.armar_entorno(params(), {"PATH": "x"}, "/r", "/r/run", "/r/salida", "/r/stop", "/c.json", "/t.json")
+        self.assertEqual(env["TOURPLAN_TIPO_RESERVAS"], "AMBOS")
+
+    def test_pendientes_por_tipo_y_por_modo(self):
+        filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}, {"ESTADO": "PENDIENTE", "TIPO": "fit"}, {"ESTADO": "PENDIENTE", "TIPO": "GRUPOS"},
+                 {"ESTADO": "PENDIENTE"}, {"ESTADO": "OK", "TIPO": "FITS"}, {"ESTADO": "PENDIENTE", "TIPO": "RARO"}]
+        por_tipo = E.contar_pendientes_por_tipo(filas)
+        self.assertEqual(por_tipo, {"FITS": 2, "GRUPOS": 1, "": 1})
+        self.assertEqual([E.pendientes_del_modo(por_tipo, m) for m in ("FITS", "GRUPOS", "AMBOS")], [2, 1, 4])
+        self.assertIsNone(E.pendientes_del_modo(None, "FITS"))
+
     def test_faltantes_y_rango(self):
         self.assertEqual(len(E.validar_parametros(params(usuario="", password=" ", sheet_url=""))), 3)
         self.assertTrue(any("anterior" in e for e in E.validar_parametros(params(hasta=date(2026, 10, 1)))))

@@ -16,8 +16,9 @@ cancelados no entran en la corrida.
 2. En **1 · Ejecutar**, sección 2, elegí el modo:
    - **Solo revisar:** lee y muestra qué se procesaría, sin modificar nada. Recomendado antes de aplicar.
    - **Aplicar cambios:** hace la sustitución real. **Exige adjuntar el reporte PRE** (Product Analysis exportado antes de la corrida, con las mismas fechas): la app verifica que cubra todas las combinaciones PENDIENTES y lo guarda para comparar después.
-3. Poné **Servicios desde** (obligatoria) y, si hace falta, **hasta**. Chequeá que la URL de Tourplan (en **Avanzado**) sea la del ambiente que querés usar.
-4. Revisá la lista de requisitos y tocá **Ejecutar revisión** (o **Aplicar en producción**, que además pide tildar la confirmación). Arriba queda una barra con el avance y el botón **Abortar**; la consola muestra el detalle, con la hora de cada paso. No toques la ventana de Chrome mientras corre.
+3. Elegí el **Tipo de reservas**: **FITS** (individuales), **GRUPOS** o **AMBOS**. Cada combinación del Sheet tiene su `TIPO` y en FITS o GRUPOS solo se procesan las filas de ese tipo; el filtro Department de Tourplan se ajusta solo. Al cargar un reporte la app arma una fila por combinación y tipo, así que con un solo Service Status alcanzan los dos tipos. Las filas viejas del Sheet sin `TIPO` solo se procesan en AMBOS. Por defecto queda FITS.
+4. Poné **Servicios desde** (obligatoria) y, si hace falta, **hasta**. Chequeá que la URL de Tourplan (en **Avanzado**) sea la del ambiente que querés usar.
+5. Revisá la lista de requisitos y tocá **Ejecutar revisión** (o **Aplicar en producción**, que además pide tildar la confirmación). Arriba queda una barra con el avance y el botón **Abortar**; la consola muestra el detalle, con la hora de cada paso. No toques la ventana de Chrome mientras corre.
    **Abortar** corta al terminar la combinación en curso.
 
 ## Después

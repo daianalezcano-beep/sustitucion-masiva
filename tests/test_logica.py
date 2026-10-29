@@ -62,6 +62,17 @@ class InputYProvisorios(unittest.TestCase):
         self.assertEqual(unicas, [a, c, vacia, dict(vacia)])
         self.assertEqual(rep, [(b, a)])
 
+    def test_la_misma_combinacion_en_fits_y_en_grupos_no_es_duplicada(self):
+        a = {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "CT3ID", "TIPO": "FITS"}
+        g = dict(a, TIPO="grupos")
+        otra_fits = dict(a, TIPO=" fit ")                      # mismo tipo con otra grafía: sí es repetida
+        sin_tipo = {k: v for k, v in a.items() if k != "TIPO"}
+        unicas, rep = L.deduplicar_input([a, g, otra_fits, sin_tipo])
+        self.assertEqual(unicas, [a, g, sin_tipo])             # una fila anterior a la columna TIPO es otra clave
+        self.assertEqual(rep, [(otra_fits, a)])
+        self.assertEqual(L.clave_fila(a), ("BUE", "1ACOS1", "GU", "CT3ID", "FITS"))
+        self.assertEqual(L.clave_fila(sin_tipo), ("BUE", "1ACOS1", "GU", "CT3ID", ""))
+
 
 class Encabezados(unittest.TestCase):
     CANON = ["LOCATION", "SERVICE TYPE", "SUPPLIER", "CODIGO", "ESTADO"]

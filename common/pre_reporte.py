@@ -11,6 +11,7 @@ from pathlib import Path
 
 from common import comparador as C
 from common import logica as L
+from common import tipo_reserva as T
 
 COLUMNAS_REQUERIDAS = ("Loc", "Service", "Option", "Supplier", "Date", "Retail", "Reference")
 CARPETA = "pre_reportes"
@@ -32,27 +33,34 @@ def leer_pre(contenido):
 
 
 def combinaciones_cubiertas(filas, desde=None, hasta=None):
-    """Conjunto de (LOCATION, SUPPLIER, SERVICE TYPE, CODIGO) con al menos una línea en el PRE; si se dan `desde`/`hasta`
-    (datetime), solo cuentan las líneas con Date dentro del rango."""
+    """Conjunto de (LOCATION, SUPPLIER, SERVICE TYPE, CODIGO, TIPO) con al menos una línea en el PRE, donde TIPO sale del Department de la
+    Reference ('FITS', 'GRUPOS' o '' si no está clasificado); si se dan `desde`/`hasta` (datetime), solo cuentan las líneas con Date dentro
+    del rango."""
     cubiertas = set()
     for f in filas:
         d = C.fecha(f.get("Date"))
         if d is not None and ((desde and d < desde) or (hasta and d > hasta)):
             continue
-        cubiertas.add((_n(f.get("Loc")), _n(f.get("Supplier")), _n(f.get("Service")), _n(f.get("Option"))))
+        cubiertas.add((_n(f.get("Loc")), _n(f.get("Supplier")), _n(f.get("Service")), _n(f.get("Option")),
+                       T.tipo_de_reserva(f.get("Reference")) or ""))
     return cubiertas
 
 
 def combinaciones_faltantes(filas, pendientes, desde=None, hasta=None):
-    """Combinaciones de `pendientes` (filas del Sheet con LOCATION, SUPPLIER, SERVICE TYPE, CODIGO) que el PRE no cubre,
-    sin repetir y en el orden de la hoja."""
+    """Combinaciones de `pendientes` (filas del Sheet con LOCATION, SUPPLIER, SERVICE TYPE, CODIGO y, si hay, TIPO) que el PRE no cubre, sin
+    repetir y en el orden de la hoja. Una fila con TIPO (FITS / GRUPOS) exige líneas de ese tipo en el PRE; una sin TIPO, de cualquiera.
+    Se devuelve la clave de 4 campos (o de 5, con el TIPO, si la fila lo tiene)."""
     cubiertas = combinaciones_cubiertas(filas, desde, hasta)
+    cubiertas_sin_tipo = {k[:4] for k in cubiertas}
     faltan, vistas = [], set()
     for f in pendientes:
         k = L.clave_combinacion(f)
-        if k not in cubiertas and k not in vistas:
-            vistas.add(k)
-            faltan.append(k)
+        tipo = T.normalizar_tipo(f.get("TIPO"))
+        cubierta = k in cubiertas_sin_tipo if not tipo else (k + (tipo,)) in cubiertas
+        clave = k + (tipo,) if tipo else k
+        if not cubierta and clave not in vistas:
+            vistas.add(clave)
+            faltan.append(clave)
     return faltan
 
 
