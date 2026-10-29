@@ -230,7 +230,8 @@ header[data-testid="stHeader"], [data-testid="stToolbar"] { background: transpar
 .block-container, [data-testid="stMainBlockContainer"], [data-testid="stMain"],
 [data-testid="stAppViewContainer"] > section { padding-top: 0 !important; }
 /* Espacio al final: si la ventana del navegador queda parcialmente tapada (barra de tareas), todavía se puede bajar hasta lo último. */
-.block-container, [data-testid="stMainBlockContainer"] { padding-bottom: 12rem !important; max-width: 1240px; }
+.block-container, [data-testid="stMainBlockContainer"] { padding-bottom: 12rem !important; max-width: none !important;
+    padding-left: 2.5rem !important; padding-right: 2.5rem !important; }       /* aprovecha todo el ancho de la ventana */
 [data-testid="stElementContainer"]:has(style) { display: none !important; }   /* los bloques <style> no dejan renglón vacío */
 
 /* encabezado */
