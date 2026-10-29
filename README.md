@@ -28,7 +28,7 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
   **Continuar / Cancelar** (y la captura del modal). La vuelta se hace sola: frenar entre ida y vuelta dejaría reservas en el provisorio.
 - **Tipo de reservas (FITS / GRUPOS / AMBOS):** la hoja `SUBSTITUTE` tiene una columna `TIPO` (la app la crea si falta) y el script aplica el filtro
   **Department** de Substitute Service según el tipo de cada fila. El Department es las letras 3 y 4 de la Reference (`EAGP...` = `GP`). La
-  tabla (en `common/tipo_reserva.py`, tomada de la configuración de Tourplan): FITS = `FG FI FM FT MI OP PE PI PU`; GRUPOS = `GP GR IN`;
+  tabla (en `common/tipo_reserva.py`, tomada de la configuración de Tourplan): FITS = `FI FM FT MI OP PE PI PU`; GRUPOS = `GP GR IN` y `FG` (individuales que se desprenden de un grupo y se trabajan también desde el módulo de grupos; en Tourplan figura solo como individual);
   **sin clasificar** (marcados para ambos o para ninguno: `BO CF FL PR SL US AC RD` y el vacío) = no se procesan hasta clasificarlos
   (`PR` es el de `EAPR`). Una combinación con reservas de los dos tipos son dos filas. En el provisorio se miran todos los Department. Después
   de leer Results se verifica que ninguna reserva sea de un Department fuera del filtro (si no, `ERROR: Results`). Las filas sin `TIPO` (anteriores

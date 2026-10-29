@@ -12,9 +12,9 @@ class TipoReserva(unittest.TestCase):
         self.assertEqual([T.departamento_de(r) for r in ("EAGP246283", "TDGR1234", "eafi9", "EA", "", None)], ["GP", "GR", "FI", "", "", ""])
 
     def test_clasificacion_segun_la_tabla_de_tourplan(self):
-        for ref in ("EAFI1", "EAFT1", "EAFG1", "EAMI1", "EAFM1", "EAPE1", "EAPI1", "EAPU1", "EAOP1"):
+        for ref in ("EAFI1", "EAFT1", "EAMI1", "EAFM1", "EAPE1", "EAPI1", "EAPU1", "EAOP1"):
             self.assertEqual(T.tipo_de_reserva(ref), "FITS", ref)
-        for ref in ("EAGP1", "EAGR1", "TDGR1", "EAIN1"):
+        for ref in ("EAGP1", "EAGR1", "TDGR1", "EAIN1", "EAFG1"):           # FG: se desprende de un grupo, se trabaja desde grupos
             self.assertEqual(T.tipo_de_reserva(ref), "GRUPOS", ref)
         # marcados para ambos (BO CF FL PR SL US) o para ninguno (vacío AC RD): sin clasificar
         for ref in ("EAPR1", "EABO1", "TDSL1", "TDUS1", "EACF1", "EAFL1", "EAAC1", "EARD1", "XX"):

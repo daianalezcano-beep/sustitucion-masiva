@@ -125,3 +125,8 @@ una reserva afectada en el incidente). La app tiene un modo **FITS / GRUPOS / AM
 fila por combinación y tipo (columna `TIPO` en el Sheet). Detalle en el README. La separación deja listo el camino para actualizar FITS ahora y GRUPOS cuando
 Tourplan corrija el bug de versión, o para probarlos por separado. **Cambia la alternativa A**: ya no hace falta excluir por estado `KK`; alcanza con no
 correr el modo GRUPOS.
+
+**Ajuste:** `FG` («Grupos en FITS») figura en Tourplan como individual, pero son files que se desprenden de un grupo y se trabajan también desde el módulo de
+grupos, así que la herramienta los clasifica como **GRUPOS** (no se procesan en el modo FITS). Evidencia disponible: en la comparación de la corrida del 27/10
+las 31 líneas `EAFG` comparadas no perdieron la venta (13 con cambio de costo, 18 sin cambios), así que si se comprobara que se comportan como FITS se pueden pasar a esa lista
+en `common/tipo_reserva.py`.

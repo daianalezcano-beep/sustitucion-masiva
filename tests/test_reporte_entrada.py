@@ -63,9 +63,9 @@ class ReporteEntrada(unittest.TestCase):
         lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Sanchez\n"      # FI: FITS
                   "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAGP9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"      # GP: GRUPOS
                   "OT,1SANC9,30-Oct-2026,27-May-2026,GU,BUE,CT3ID,C x2,TDGR9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"      # TD + GR: GRUPOS
-                  "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,D x2,EAFG9,OK,2,1,0,0,0,A,V,V,,Sanchez\n")     # FG: FITS (individuales)
+                  "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,D x2,EAFG9,OK,2,1,0,0,0,A,V,V,,Sanchez\n")     # FG: GRUPOS (se desprende de un grupo)
         p = R.armar_plan(R.leer_reporte((CAB + "\n" + lineas).encode("utf-8")), PROV)
-        self.assertEqual([(c["TIPO"], c["RESERVAS"]) for c in p["a_cargar"]], [("FITS", 2), ("GRUPOS", 2)])
+        self.assertEqual([(c["TIPO"], c["RESERVAS"]) for c in p["a_cargar"]], [("FITS", 1), ("GRUPOS", 3)])
         self.assertEqual(R.filas_para_hoja(p["a_cargar"])[1]["TIPO"], "GRUPOS")
 
     def test_un_department_sin_clasificar_no_se_procesa(self):
@@ -112,9 +112,10 @@ class ReporteEntrada(unittest.TestCase):
         r = p["resumen"]
         self.assertEqual((r["Líneas del reporte"], r["Líneas excluidas (servicio cancelado)"]), (1595, 202))
         self.assertEqual(r["Líneas excluidas (proveedor por asignar)"], 628)
-        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (307, 737))       # una fila por combinación y TIPO (158 FITS + 149 GRUPOS); la corrida real del 27/10 procesó 276 combinaciones
+        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (311, 737))       # una fila por combinación y TIPO (ver el recuento por tipo abajo); la corrida real del 27/10 procesó 276 combinaciones
         self.assertEqual(r["Líneas de Department sin clasificar"], 8)                              # las de EAPR (Department PR)
         self.assertEqual(sorted({c["TIPO"] for c in p["a_cargar"]}), ["FITS", "GRUPOS"])
+        self.assertEqual((sum(c["TIPO"] == "FITS" for c in p["a_cargar"]), sum(c["TIPO"] == "GRUPOS" for c in p["a_cargar"])), (148, 163))
         self.assertTrue(all(c["SUPPLIER"] != "GUIAPO" for c in p["a_cargar"]))
         self.assertEqual(r["Desde"].strftime("%d/%m/%Y"), "28/10/2026")
 

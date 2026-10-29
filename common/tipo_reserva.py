@@ -14,9 +14,10 @@ TIPO_FITS, TIPO_GRUPOS, TIPO_AMBOS = "FITS", "GRUPOS", "AMBOS"
 TIPOS_DE_FILA = (TIPO_FITS, TIPO_GRUPOS)
 MODOS = (TIPO_FITS, TIPO_GRUPOS, TIPO_AMBOS)
 
-# Solo individuales / solo grupos, según Tourplan.
-DEPARTAMENTOS_FITS = frozenset({"FG", "FI", "FM", "FT", "MI", "OP", "PE", "PI", "PU"})
-DEPARTAMENTOS_GRUPOS = frozenset({"GP", "GR", "IN"})
+# Solo individuales / solo grupos, según Tourplan. FG («Grupos en FITS») figura como individual en Tourplan, pero son files que se
+# desprenden de un grupo y se trabajan también desde el módulo de grupos: se tratan como GRUPOS.
+DEPARTAMENTOS_FITS = frozenset({"FI", "FM", "FT", "MI", "OP", "PE", "PI", "PU"})
+DEPARTAMENTOS_GRUPOS = frozenset({"FG", "GP", "GR", "IN"})
 # Sin clasificar (no se procesan): marcados para ambos (BO, CF, FL, PR, SL, US) o para ninguno (el vacío, AC, RD).
 DEPARTAMENTOS_SIN_CLASIFICAR = frozenset({"", "AC", "BO", "CF", "FL", "PR", "RD", "SL", "US"})
 
