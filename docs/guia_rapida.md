@@ -32,6 +32,7 @@ cancelados no entran en la corrida.
 - `ERROR_REVISAR`: algo quedó distinto a lo esperado; hay que mirarlo.
 - `ERROR_COLGADAS` o "corrida detenida": pudo quedar una reserva en el servicio temporal. **No volver a correr hasta revisarlo con quien mantiene la herramienta.**
 - `DUPLICADO`: la combinación estaba repetida en la hoja.
+- `DESCARTADA`: código genérico (`700` o `600` + tres letras, ej. `700GUI`): valor cero que se manualiza, la herramienta no lo procesa.
 
 ## Si algo sale raro
 El **Historial de corridas** (abajo en la app) permite descargar el log de cada corrida. Enviarlo junto con la descripción del problema.

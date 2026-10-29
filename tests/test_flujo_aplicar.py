@@ -677,6 +677,22 @@ class MainOrquestador(unittest.TestCase):
         self.assertNotIn(5, [i for i, _ in self.escrituras])            # la que ya estaba OK no se toca
         self.assertEqual(self.llamadas, ["crear_driver", "login", "logout", "quit"])
 
+    def test_los_codigos_genericos_no_se_procesan_ni_en_lectura_ni_en_aplicar(self):
+        filas = [{"__row_idx__": 2, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "700GUI", "ESTADO": "PENDIENTE"},
+                 {"__row_idx__": 3, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "600tra", "ESTADO": "PENDIENTE"},
+                 {"__row_idx__": 4, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "700GUIA", "ESTADO": "PENDIENTE"}]
+        sd.cargar_hojas = lambda: (object(), filas, sd.COLS_INPUT + ["OBSERVACIONES", "TIMESTAMP"], None, None)
+        for modo in ("lectura", "aplicar"):
+            self.escrituras.clear()
+            sd.MODO = modo
+            sd.main()
+            estados = {idx: v.get("ESTADO") for idx, v in self.escrituras if v.get("ESTADO")}
+            self.assertEqual(estados.get(2), "DESCARTADA", modo)
+            self.assertEqual(estados.get(3), "DESCARTADA", modo)
+            self.assertIn("Código genérico", [v for i, v in self.escrituras if i == 2][0]["OBSERVACIONES"])
+            self.assertNotEqual(estados.get(4), "DESCARTADA", modo)                          # 700GUIA (4 letras) sí se procesa
+            self.assertTrue(any(i == 4 and v.get("OBSERVACIONES") for i, v in self.escrituras), modo)
+
     def test_si_el_login_falla_no_se_hace_logout(self):
         def login_roto(d):
             raise AssertionError("Login falló")

@@ -80,7 +80,7 @@ python scripts\substitute_doble\substitute_doble.py
 - Usa las credenciales de Google de `~/.tourplan-nx-app/` (las mismas de Drive-TP-NX-App).
 - Cada corrida crea su propia carpeta `salida\lectura_AAAAMMDD-HHMMSS\` (el diagnóstico, `diag_out\diag_AAAAMMDD-HHMMSS\`) con
   capturas, HTML, `panel_probe.json` y `consola.log` (todo lo que imprime el script). Para mandar una corrida, comprimir esa subcarpeta.
-- En modo lectura la fila queda `PENDIENTE` con el conteo en `OBSERVACIONES`; solo cambian los errores y `DUPLICADO`.
+- En modo lectura la fila queda `PENDIENTE` con el conteo en `OBSERVACIONES`; solo cambian los errores, `DUPLICADO` y `DESCARTADA` (código genérico 700/600 + 3 letras, que el script no procesa aunque esté cargado como PENDIENTE).
 
 ## Modo aplicar (Fase 2) — MODIFICA reservas en producción
 

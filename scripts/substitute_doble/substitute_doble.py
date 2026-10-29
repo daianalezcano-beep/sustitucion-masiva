@@ -78,6 +78,7 @@ from selenium.webdriver.common.by import By
 from common import logica as L
 from common import tp_selenium as tp
 from common import ejecucion as E
+from common.reporte_entrada import CODIGO_GENERICO
 from common.abort import ABORT_EXIT_CODE, AbortadoPorUsuario, abort_solicitado, chequear_abort
 from common.sheets_batch import actualizar_columna_rango, agregar_filas_batch, asegurar_columnas_tolerante
 from common.sheets_client import actualizar_fila_sheet, cargar_sheet, conectar_sheets
@@ -1510,6 +1511,15 @@ def main():
                                 f"Repetida: misma combinación que la fila {original['__row_idx__']}")
     if repetidas:
         print(f"Filas DUPLICADO (no se procesan): {len(repetidas)}")
+    # Códigos genéricos (700/600 + 3 letras, ej. 700GUI): valor cero que se manualiza, no se sustituyen. Aunque la fila ya esté
+    # cargada en el Sheet como PENDIENTE (a mano o de una carga anterior), no se procesa.
+    genericas = [r for r in unicas if CODIGO_GENERICO.fullmatch(str(r.get("CODIGO") or "").strip().upper())]
+    for r in genericas:
+        escribir_resultado_fila(ws, r["__row_idx__"], columnas, "DESCARTADA",
+                                "Código genérico (700/600 + 3 letras): valor cero que se manualiza, no se procesa")
+    if genericas:
+        print(f"Filas DESCARTADA por código genérico (no se procesan): {len(genericas)}")
+        unicas = [r for r in unicas if r not in genericas]
     if FILA:
         unicas = [r for r in unicas if str(r["__row_idx__"]) == FILA]
         print(f"TOURPLAN_FILA={FILA}: se procesa solo esa fila ({len(unicas)} encontrada(s) PENDIENTE).")
