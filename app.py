@@ -460,10 +460,10 @@ def render_desde_reporte(estado):
             st.warning(f"{r['Líneas incompletas']} línea(s) del reporte tienen Location, Supplier, Service u Option vacíos y se ignoraron.")
         if plan["a_cargar"]:
             st.markdown(f"**A cargar** ({len(plan['a_cargar'])})")
-            st.dataframe([{k: v for k, v in c_.items() if k != "N_ESTADOS"} for c_ in plan["a_cargar"]], hide_index=True, use_container_width=True)
+            st.dataframe([{k: v for k, v in c_.items() if k != "N_ESTADOS"} for c_ in plan["a_cargar"]], hide_index=True, use_container_width=True, height="content")
         if plan["descartadas"]:
             st.markdown(f"**Descartadas** ({len(plan['descartadas'])})")
-            st.dataframe([{k: v for k, v in c_.items() if k != "N_ESTADOS"} for c_ in plan["descartadas"]], hide_index=True, use_container_width=True)
+            st.dataframe([{k: v for k, v in c_.items() if k != "N_ESTADOS"} for c_ in plan["descartadas"]], hide_index=True, use_container_width=True, height="content")
         if not plan["a_cargar"]:
             st.info("No hay combinaciones nuevas para cargar.")
         elif st.button(f"✅ Confirmar: cargar {len(plan['a_cargar'])} combinación(es) al Sheet como PENDIENTE", type="primary",
