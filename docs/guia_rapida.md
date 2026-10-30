@@ -23,7 +23,7 @@ cancelados no entran en la corrida.
 
 ## Después
 1. Exportá el reporte **"después"** con las mismas opciones que el "antes".
-2. Con el botón **Ir a Comparar** que aparece al terminar una corrida de Aplicar (o **Comparar reportes**, debajo de Ejecutar) subí el reporte de después (el PRE de la última corrida ya está guardado) y tocá **Comparar**. El costo puede cambiar; si aparece un aviso rojo de
+2. Con el botón **Ir a Comparar** que aparece al terminar una corrida de Aplicar, o con la pestaña **Comparar reportes** (arriba, junto a **Ejecutar corrida**; no hace falta haber ejecutado antes) subí el reporte de después (el PRE de la última corrida ya está guardado) y tocá **Comparar**. El costo puede cambiar; si aparece un aviso rojo de
    **venta modificada**, revisá esas líneas antes de seguir.
 3. En la hoja, `ESTADO` y `OBSERVACIONES` de cada línea dicen qué pasó. El detalle por reserva está en `SUBSTITUTE_DETALLE`.
 

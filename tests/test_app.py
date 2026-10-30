@@ -60,6 +60,11 @@ class App(unittest.TestCase):
     def boton(self, at, clave):
         return next(b for b in at.button if b.key == clave)
 
+    def elegir(self, at, clave, valor):
+        """Elige una opción de un control segmentado (AppTest no lo maneja directo: se fija el valor de su clave y se vuelve a correr)."""
+        at.session_state[clave] = valor
+        return at.run()
+
     def textos(self, at):
         return " ".join(m.value for m in at.markdown)
 
@@ -76,11 +81,95 @@ class App(unittest.TestCase):
         self.assertFalse(at.exception)
         tipos = [(e.type, getattr(e, "label", None) or getattr(e, "value", None)) for e in self._aplanar(at.main)]
         pos = lambda tipo, texto: next(i for i, (t, v) in enumerate(tipos) if t == tipo and texto in str(v))
-        self.assertLess(pos("markdown", "Actualización de costos"), pos("markdown", "Cola de trabajo"))
-        self.assertLess(pos("markdown", "Cola de trabajo"), pos("radio", "Modo"))                    # los parámetros van debajo de la cola
-        self.assertLess(pos("radio", "Modo"), pos("markdown", 'class="sd-consola"'))                 # y la consola debajo de los parámetros
+        self.assertLess(pos("markdown", "Actualización de costos"), pos("button_group", "Vista"))                 # las pestañas, bajo el encabezado
+        self.assertLess(pos("button_group", "Vista"), pos("markdown", "Cola de trabajo"))
+        self.assertLess(pos("markdown", "Cola de trabajo"), pos("button_group", "Combinaciones a procesar"))     # los parámetros, bajo la cola
+        self.assertLess(pos("button_group", "Modo"), pos("markdown", 'class="sd-consola"'))                       # y la consola, bajo los parámetros
         self.assertLess(pos("markdown", 'class="sd-consola"'), pos("expander", "Historial de corridas"))
-        self.assertEqual(at.get("button_group"), [])                                                  # ya no hay pestañas de pasos
+
+    def test_selectores_segmentados_con_ayuda_que_cambia_y_siempre_una_opcion(self):
+        self.configurar()
+        at = self.app()
+        grupos = {g.key: g for g in at.get("button_group")}
+        self.assertEqual([o.content for o in grupos["modo"].proto.options], ["Solo revisar", "Aplicar cambios"])
+        self.assertEqual([o.content for o in grupos["tipo_reservas"].proto.options], ["FITS", "GRUPOS", "AMBOS"])
+        self.assertEqual([o.content for o in grupos["origen"].proto.options][1], "Reporte nuevo")
+        self.assertTrue(all(g.proto.required for g in grupos.values() if g.key in ("origen", "modo", "tipo_reservas")))   # nunca sin opción
+        self.assertIn("Lectura. No modifica nada en Tourplan.", self.textos(at))
+        self.assertIn("Procesar lo que ya está cargado", self.textos(at))
+        self.elegir(at, "modo", "aplicar")
+        self.assertIn("Modifica reservas reales en Tourplan.", self.textos(at))
+        self.assertNotIn("Lectura. No modifica nada en Tourplan.", self.textos(at))
+        self.elegir(at, "origen", "reporte")
+        self.assertIn("Subir el Service Status y sumar combinaciones", self.textos(at))
+
+    def test_la_opcion_pendientes_muestra_la_cantidad_real(self):
+        self.configurar()
+        filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}, {"ESTADO": "PENDIENTE", "TIPO": "FITS"}]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
+            at.run()
+        grupos = {g.key: g for g in at.get("button_group")}
+        self.assertEqual(grupos["origen"].proto.options[0].content, "Pendientes (2)")
+
+    def test_ejecutar_solo_se_habilita_con_los_obligatorios_y_sin_reporte_nuevo_a_medias(self):
+        self.configurar()
+        filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
+            at.run()
+            self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
+            self.assertEqual(self.boton(at, "ejecutar_revision").label, "Ejecutar")
+            self.elegir(at, "origen", "reporte")                                                   # elegir «Reporte nuevo» bloquea Ejecutar
+            self.assertTrue(self.boton(at, "ejecutar_revision").disabled)
+            self.assertIn("Para ejecutar falta: terminar la carga del reporte nuevo.", self.textos(at))
+            self.elegir(at, "origen", "pendientes")
+            self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
+
+    def test_el_texto_de_ayuda_usa_el_singular_y_el_plural(self):
+        self.configurar()
+        for n, esperado in ((1, "<b>1 combinación</b>"), (3, "<b>3 combinaciones</b>")):
+            filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}] * n
+            at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+            with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+                 mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
+                at.run()
+            self.assertIn(f"Va a leer {esperado}. No modifica nada.", self.textos(at))
+            self.assertIn("Ejecutar", self.boton(at, "ejecutar_revision").label)
+
+    def test_las_vistas_son_pestanas_de_texto_y_la_inactiva_se_oculta(self):
+        self.configurar()
+        at = self.app()
+        vista = next(g for g in at.get("button_group") if g.key == "paso")
+        self.assertEqual([o.content for o in vista.proto.options], ["Ejecutar corrida", "Comparar reportes"])
+        self.assertEqual(at.session_state["paso"], "run")
+        self.assertIn(".st-key-panel_cmp { display: none; }", self.textos(at))                        # Comparar está oculto
+        self.assertIn("No hace falta haber ejecutado antes: podés subir los dos reportes a mano.", self.textos(at))
+        self.elegir(at, "paso", "cmp")
+        self.assertIn(".st-key-panel_run { display: none; }", self.textos(at))
+        self.assertIn("ejecutar_revision", [b.key for b in at.button])                               # sigue dibujado (no pierde lo cargado)
+        self.assertNotIn("ir_comparar_manual", [b.key for b in at.button])                            # ya no hay botones sueltos para cambiar de vista
+        self.assertNotIn("volver_ejecutar", [b.key for b in at.button])
+
+    def test_cambiar_de_vista_con_una_corrida_en_curso_no_la_toca(self):
+        self.configurar()
+        run_dir = Path(tempfile.mkdtemp())
+        estado = estado_falso(running=True, modo="aplicar", run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag",
+                              log_lines=["[10:00:00] Filas PENDIENTE a procesar: 3\n", "[10:00:01] Fila 2: BUE/A/GU/X\n"])
+        at = self.app(estado)
+        antes = self.textos(at)
+        self.assertIn("APLICANDO", antes)
+        self.elegir(at, "paso", "cmp")
+        self.assertFalse(at.exception)
+        estado_despues = at.session_state["_corrida"]
+        self.assertTrue(estado_despues["running"])                                                    # sigue corriendo
+        self.assertEqual(estado_despues["log_lines"], estado["log_lines"])                            # la consola no se pierde
+        self.assertIn("APLICANDO", self.textos(at))
+        self.assertIn("Combinación 1 de 3", self.textos(at))
+        self.elegir(at, "paso", "run")
+        self.assertIn("Fila 2: BUE/A/GU/X", self.textos(at))
 
     def test_sin_rango_de_fechas_ni_fila_ni_avanzado(self):
         self.configurar()
@@ -90,23 +179,11 @@ class App(unittest.TestCase):
         self.assertNotIn("base_url", [t.key for t in at.text_input])
         self.assertFalse(any(e.label == "Avanzado" for e in at.expander))
 
-    def test_comparar_se_abre_con_el_boton_y_se_vuelve_con_el_otro(self):
-        self.configurar()
-        at = self.app()
-        self.assertEqual(at.session_state["paso"], "run")
-        self.assertIn(".st-key-panel_cmp { display: none; }", self.textos(at))                        # Comparar está oculto
-        self.boton(at, "ir_comparar_manual").click().run()
-        self.assertEqual(at.session_state["paso"], "cmp")
-        self.assertIn(".st-key-panel_run { display: none; }", self.textos(at))
-        self.assertIn("ejecutar_revision", [b.key for b in at.button])                               # sigue dibujado (no pierde lo cargado)
-        self.boton(at, "volver_ejecutar").click().run()
-        self.assertEqual(at.session_state["paso"], "run")
-
     def test_ejecutar_lanza_el_script_con_el_entorno_correcto(self):
         user_config.guardar({"tp_usuario": "daiana", "tp_password": "secreta", "headless": False, "tp_base_url": "https://prueba.example/tp",
                              "sheet_urls": {"substitute_doble": "https://docs.google.com/spreadsheets/d/XYZ/edit"}})
         at = self.app()
-        self.assertIn("Tourplan: https://prueba.example/tp", self.textos(at))                        # un ambiente distinto de producción se nota arriba
+        self.assertIn("Tourplan: <b>https://prueba.example/tp</b>", self.textos(at))                        # un ambiente distinto de producción se nota arriba
         with mock.patch("subprocess.Popen", ProcFalso):
             at = self.boton(at, "ejecutar_revision").click().run()
         self.assertFalse(at.exception)
@@ -125,7 +202,7 @@ class App(unittest.TestCase):
     def test_la_url_de_tourplan_por_defecto_es_produccion(self):
         self.configurar()
         at = self.app()
-        self.assertIn("Tourplan: producción", self.textos(at))
+        self.assertIn("Tourplan: <b>producción</b>", self.textos(at))
 
     def test_abortar_esta_al_lado_de_refrescar_y_no_en_la_tarjeta(self):
         self.configurar()
@@ -139,7 +216,7 @@ class App(unittest.TestCase):
     def test_la_confirmacion_de_aplicar_no_se_borra_al_ejecutar_sino_al_terminar(self):
         self.configurar()
         at = self.app()
-        at.radio(key="modo").set_value("aplicar").run()
+        self.elegir(at, "modo", "aplicar")
         at.checkbox(key="confirmo").check().run()
         self.assertTrue(at.session_state["confirmo"])
         # al terminar la corrida se vuelve a pedir
@@ -214,14 +291,14 @@ class App(unittest.TestCase):
         self.assertTrue(self.boton(at, "refrescar").disabled)
         self.assertTrue(self.boton(at, "ejecutar_revision").disabled)
         self.assertFalse(self.boton(at, "abortar_barra").disabled)
-        self.assertTrue(at.radio(key="modo").disabled)                                                 # los parámetros quedan bloqueados
+        self.assertTrue(all(g.proto.disabled for g in at.get("button_group") if g.key in ("origen", "modo", "tipo_reservas")))   # los parámetros quedan bloqueados
 
     def test_cargar_desde_reporte_esta_en_el_paso_ejecutar(self):
         self.configurar()
         at = self.app()
-        self.assertEqual(at.radio(key="origen").value, "pendientes")
+        self.assertEqual(at.session_state["origen"], "pendientes")
         self.assertNotIn("analizar_reporte", [b.key for b in at.button])                               # solo aparece al elegir «reporte nuevo»
-        at.radio(key="origen").set_value("reporte").run()
+        self.elegir(at, "origen", "reporte")
         self.assertFalse(at.exception)
         self.assertTrue(self.boton(at, "analizar_reporte").disabled)                                   # sin archivo no se puede analizar
         self.assertNotIn("confirmar_carga", [b.key for b in at.button])                                # y nada se carga sin confirmar
@@ -236,7 +313,7 @@ class App(unittest.TestCase):
         self.assertFalse(at.exception)
         cola = next(m.value for m in at.markdown if 'class="sd-cola"' in m.value)
         self.assertIn('<span class="n">2</span><span class="l">Pendiente', cola)                       # sin tocar Refrescar
-        self.assertIn("Combinaciones pendientes en el Sheet (FITS): 2", self.textos(at))
+        self.assertIn("Combinaciones pendientes en el Sheet (FITS): <b>2</b>", self.textos(at))
 
     def test_tipo_de_reservas_filtra_los_pendientes_y_avisa_de_las_filas_sin_tipo(self):
         self.configurar()
@@ -246,20 +323,20 @@ class App(unittest.TestCase):
         with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
              mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
             at.run()
-            self.assertEqual(at.radio(key="tipo_reservas").value, "FITS")                              # por defecto, el más seguro
-            self.assertIn("Combinaciones pendientes en el Sheet (FITS): 1", self.textos(at))
+            self.assertEqual(at.session_state["tipo_reservas"], "FITS")                              # por defecto, el más seguro
+            self.assertIn("Combinaciones pendientes en el Sheet (FITS): <b>1</b>", self.textos(at))
             self.assertIn("1 fila(s) PENDIENTE sin TIPO", " ".join(c.value for c in at.caption))
-            at.radio(key="tipo_reservas").set_value("GRUPOS").run()
-            self.assertIn("Combinaciones pendientes en el Sheet (GRUPOS): 2", self.textos(at))
-            at.radio(key="tipo_reservas").set_value("AMBOS").run()
-            self.assertIn("Combinaciones pendientes en el Sheet (AMBOS): 4", self.textos(at))        # incluye la fila sin TIPO
+            self.elegir(at, "tipo_reservas", "GRUPOS")
+            self.assertIn("Combinaciones pendientes en el Sheet (GRUPOS): <b>2</b>", self.textos(at))
+            self.elegir(at, "tipo_reservas", "AMBOS")
+            self.assertIn("Combinaciones pendientes en el Sheet (AMBOS): <b>4</b>", self.textos(at))        # incluye la fila sin TIPO
             self.assertNotIn("sin TIPO", " ".join(c.value for c in at.caption))
         self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
 
     def test_el_tipo_de_reservas_viaja_al_script(self):
         self.configurar()
         at = self.app()
-        at.radio(key="tipo_reservas").set_value("GRUPOS").run()
+        self.elegir(at, "tipo_reservas", "GRUPOS")
         with mock.patch("subprocess.Popen", ProcFalso):
             self.boton(at, "ejecutar_revision").click().run()
         self.assertEqual(ProcFalso.llamada[1]["env"]["TOURPLAN_TIPO_RESERVAS"], "GRUPOS")
@@ -284,9 +361,9 @@ class App(unittest.TestCase):
         self.configurar()
         at = self.app()
         self.assertFalse(at.exception)
-        self.assertIn("Usuario: daiana", self.textos(at))
+        self.assertIn("Usuario: <b>daiana</b>", self.textos(at))
         self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
-        self.assertEqual(at.radio(key="modo").value, "lectura")
+        self.assertEqual(at.session_state["modo"], "lectura")
         self.assertTrue(self.boton(at, "abortar_cola").disabled)                                      # Abortar deshabilitado sin corrida
         self.assertNotIn("rep_pre", [u.key for u in at.get("file_uploader")])                           # el PRE se pide solo en Aplicar
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])                                  # Service Types ya no se configura en pantalla
@@ -294,7 +371,7 @@ class App(unittest.TestCase):
     def test_aplicar_exige_pre_y_confirmacion(self):
         self.configurar()
         at = self.app()
-        at.radio(key="modo").set_value("aplicar").run()
+        self.elegir(at, "modo", "aplicar")
         self.assertFalse(at.exception)
         self.assertIn("MODO APLICAR", self.textos(at))
         self.assertIn("rep_pre", [u.key for u in at.get("file_uploader")])
@@ -306,7 +383,7 @@ class App(unittest.TestCase):
         at.checkbox(key="confirmo").check().run()
         self.assertIn("Para ejecutar falta: adjuntar el reporte PRE.", self.textos(at))                # la confirmación ya no falta, el PRE sí
         self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
-        at.radio(key="modo").set_value("lectura").run()
+        self.elegir(at, "modo", "lectura")
         self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
 
     def test_la_url_del_sheet_solo_se_pide_en_configuracion(self):
