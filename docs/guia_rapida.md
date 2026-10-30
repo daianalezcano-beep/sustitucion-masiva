@@ -6,24 +6,24 @@ cancelados no entran en la corrida.
 
 ## Antes de empezar
 1. Cargá las combinaciones en la hoja de Google (pestaña `SUBSTITUTE`): a mano (`LOCATION`, `SUPPLIER`, `SERVICE TYPE`, `CODIGO` y `ESTADO` = `PENDIENTE`) o,
-   más simple, desde la app: exportá de Tourplan el reporte **Service Status**, en **1 · Ejecutar** elegí **Cargar un reporte nuevo**, subí el CSV, tocá **Analizar
+   más simple, desde la app: exportá de Tourplan el reporte **Service Status**, en **Combinaciones a procesar** elegí **Cargar un reporte nuevo**, subí el CSV, tocá **Analizar
    reporte**, revisá la vista previa y **Confirmar**.
 2. Exportá de Tourplan el reporte **Product Analysis "antes"** en CSV.
 3. La primera vez, la app abre sola **⚙️ Configuración** (el engranaje de arriba a la izquierda): cargá el usuario y la clave de Tourplan y el enlace de la hoja.
 
 ## Correr
 1. Doble clic en `run_app.bat` (antes, `actualizar_app.bat` para tener la última versión).
-2. En **1 · Ejecutar**, sección 2, elegí el modo:
+2. Elegí el modo:
    - **Solo revisar:** lee y muestra qué se procesaría, sin modificar nada. Recomendado antes de aplicar.
    - **Aplicar cambios:** hace la sustitución real. **Exige adjuntar el reporte PRE** (Product Analysis exportado antes de la corrida, con las mismas fechas): la app verifica que cubra todas las combinaciones PENDIENTES y lo guarda para comparar después.
 3. Elegí el **Tipo de reservas**: **FITS** (individuales), **GRUPOS** o **AMBOS**. Cada combinación del Sheet tiene su `TIPO` y en FITS o GRUPOS solo se procesan las filas de ese tipo; el filtro Department de Tourplan se ajusta solo. Al cargar un reporte la app arma una fila por combinación y tipo, así que con un solo Service Status alcanzan los dos tipos. Las filas viejas del Sheet sin `TIPO` solo se procesan en AMBOS. Por defecto queda FITS.
-4. Poné **Servicios desde** (obligatoria) y, si hace falta, **hasta**. Chequeá que la URL de Tourplan (en **Avanzado**) sea la del ambiente que querés usar.
-5. Revisá la lista de requisitos y tocá **Ejecutar revisión** (o **Aplicar en producción**, que además pide tildar la confirmación). Arriba queda una barra con el avance y el botón **Abortar**; la consola muestra el detalle, con la hora de cada paso. No toques la ventana de Chrome mientras corre.
+4. No hay que poner fechas: el Service Status ya viene filtrado (se sustituyen los servicios de mañana en adelante). La URL de Tourplan está en ⚙️ Configuración; arriba, el chip dice si apunta a producción.
+5. Revisá la lista de requisitos y tocá **Ejecutar revisión** (o **Aplicar en producción**, que además pide tildar la confirmación). Arriba queda una barra con el avance (el botón **Abortar** está al lado de Refrescar y en la barra); la consola muestra el detalle, con la hora de cada paso. No toques la ventana de Chrome mientras corre.
    **Abortar** corta al terminar la combinación en curso.
 
 ## Después
 1. Exportá el reporte **"después"** con las mismas opciones que el "antes".
-2. En el paso **2 · Comparar** (o con el botón **Ir a Comparar** que aparece al terminar una corrida de Aplicar) subí el reporte de después (el PRE de la última corrida ya está guardado) y tocá **Comparar**. El costo puede cambiar; si aparece un aviso rojo de
+2. Con el botón **Ir a Comparar** que aparece al terminar una corrida de Aplicar (o **Comparar reportes**, debajo de Ejecutar) subí el reporte de después (el PRE de la última corrida ya está guardado) y tocá **Comparar**. El costo puede cambiar; si aparece un aviso rojo de
    **venta modificada**, revisá esas líneas antes de seguir.
 3. En la hoja, `ESTADO` y `OBSERVACIONES` de cada línea dicen qué pasó. El detalle por reserva está en `SUBSTITUTE_DETALLE`.
 

@@ -77,30 +77,76 @@ class App(unittest.TestCase):
         tipos = [(e.type, getattr(e, "label", None) or getattr(e, "value", None)) for e in self._aplanar(at.main)]
         pos = lambda tipo, texto: next(i for i, (t, v) in enumerate(tipos) if t == tipo and texto in str(v))
         self.assertLess(pos("markdown", "Actualización de costos"), pos("markdown", "Cola de trabajo"))
-        self.assertLess(pos("markdown", "Cola de trabajo"), pos("button_group", ""))                  # los pasos van debajo de la cola
-        self.assertLess(pos("button_group", ""), pos("markdown", 'class="sd-consola"'))              # y la consola debajo de los pasos
+        self.assertLess(pos("markdown", "Cola de trabajo"), pos("radio", "Modo"))                    # los parámetros van debajo de la cola
+        self.assertLess(pos("radio", "Modo"), pos("markdown", 'class="sd-consola"'))                 # y la consola debajo de los parámetros
         self.assertLess(pos("markdown", 'class="sd-consola"'), pos("expander", "Historial de corridas"))
-        self.assertFalse(any(e.label == "Parámetros" for e in at.expander))                           # ya no hay expanders de parámetros
+        self.assertEqual(at.get("button_group"), [])                                                  # ya no hay pestañas de pasos
 
-    def test_pasos_con_estado_en_la_etiqueta_y_paso_inactivo_oculto(self):
+    def test_sin_rango_de_fechas_ni_fila_ni_avanzado(self):
+        self.configurar()
+        at = self.app()
+        self.assertEqual([d.key for d in at.date_input], [])
+        self.assertEqual([n.key for n in at.number_input], [])
+        self.assertNotIn("base_url", [t.key for t in at.text_input])
+        self.assertFalse(any(e.label == "Avanzado" for e in at.expander))
+
+    def test_comparar_se_abre_con_el_boton_y_se_vuelve_con_el_otro(self):
         self.configurar()
         at = self.app()
         self.assertEqual(at.session_state["paso"], "run")
-        pasos = at.get("button_group")[0]
-        self.assertEqual(pasos.proto.options[0].content[:12], "1 · Ejecutar")
-        self.assertIn("Solo revisar", pasos.proto.options[0].content)
-        self.assertIn("2 · Comparar", pasos.proto.options[1].content)
-        self.assertIn(".st-key-panel_cmp { display: none; }", self.textos(at))                        # el paso Comparar está oculto
-        at.session_state["paso"] = "cmp"
-        at.run()
+        self.assertIn(".st-key-panel_cmp { display: none; }", self.textos(at))                        # Comparar está oculto
+        self.boton(at, "ir_comparar_manual").click().run()
+        self.assertEqual(at.session_state["paso"], "cmp")
         self.assertIn(".st-key-panel_run { display: none; }", self.textos(at))
-        self.assertIn("ejecutar_revision", [b.key for b in at.button])                                # pero sigue dibujado (no pierde lo cargado)
+        self.assertIn("ejecutar_revision", [b.key for b in at.button])                               # sigue dibujado (no pierde lo cargado)
+        self.boton(at, "volver_ejecutar").click().run()
+        self.assertEqual(at.session_state["paso"], "run")
 
-    def test_la_etiqueta_del_paso_refleja_el_modo_aplicar(self):
+    def test_ejecutar_lanza_el_script_con_el_entorno_correcto(self):
+        user_config.guardar({"tp_usuario": "daiana", "tp_password": "secreta", "headless": False, "tp_base_url": "https://prueba.example/tp",
+                             "sheet_urls": {"substitute_doble": "https://docs.google.com/spreadsheets/d/XYZ/edit"}})
+        at = self.app()
+        self.assertIn("Tourplan: https://prueba.example/tp", self.textos(at))                        # un ambiente distinto de producción se nota arriba
+        with mock.patch("subprocess.Popen", ProcFalso):
+            at = self.boton(at, "ejecutar_revision").click().run()
+        self.assertFalse(at.exception)
+        args, kw = ProcFalso.llamada
+        self.assertTrue(args[0][1].endswith(os.path.join("scripts", "substitute_doble", "substitute_doble.py")))
+        env = kw["env"]
+        self.assertEqual((env["TOURPLAN_USERNAME"], env["TOURPLAN_PASSWORD"]), ("daiana", "secreta"))
+        self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_FILA"], env["TOURPLAN_BASE_URL"]), ("lectura", "", "https://prueba.example/tp"))
+        self.assertEqual(env["TOURPLAN_FECHA_HASTA"], "31/12/49")
+        self.assertRegex(env["TOURPLAN_FECHA_DESDE"], r"^\d\d/\d\d/\d\d$")
+        self.assertEqual(env["TOURPLAN_SHEET_URL"], "https://docs.google.com/spreadsheets/d/XYZ/edit")
+        self.assertEqual(env["TOURPLAN_PUDO_SERVICE_TYPES"], "")                                       # la app ya no pasa Service Types
+        self.assertEqual(kw["stdin"], __import__("subprocess").DEVNULL)                                # nunca queda esperando una consola
+        self.assertTrue(Path(env["TOURPLAN_CONFIRM_DIR"]).is_dir())
+
+    def test_la_url_de_tourplan_por_defecto_es_produccion(self):
+        self.configurar()
+        at = self.app()
+        self.assertIn("Tourplan: producción", self.textos(at))
+
+    def test_abortar_esta_al_lado_de_refrescar_y_no_en_la_tarjeta(self):
+        self.configurar()
+        at = self.app()
+        claves = [b.key for b in at.button]
+        self.assertIn("abortar_cola", claves)
+        self.assertNotIn("abortar_tarjeta", claves)
+        self.assertLess(claves.index("refrescar"), claves.index("abortar_cola"))                     # Abortar a la derecha de Refrescar
+        self.assertTrue(self.boton(at, "abortar_cola").disabled)                                      # sin corrida no se puede abortar
+
+    def test_la_confirmacion_de_aplicar_no_se_borra_al_ejecutar_sino_al_terminar(self):
         self.configurar()
         at = self.app()
         at.radio(key="modo").set_value("aplicar").run()
-        self.assertIn("Aplicar · falta el PRE", at.get("button_group")[0].proto.options[0].content)
+        at.checkbox(key="confirmo").check().run()
+        self.assertTrue(at.session_state["confirmo"])
+        # al terminar la corrida se vuelve a pedir
+        at.session_state["_corrida"] = estado_falso(running=True, finished=True, log_lines=["x\n"], returncode=0, modo="aplicar")
+        with mock.patch("common.sheets_client.conectar_sheets", side_effect=RuntimeError("sin red en la prueba")):
+            at.run()
+        self.assertFalse(at.session_state["confirmo"])
 
     def test_barra_pegada_y_consola_240(self):
         self.configurar()
@@ -241,7 +287,7 @@ class App(unittest.TestCase):
         self.assertIn("Usuario: daiana", self.textos(at))
         self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
         self.assertEqual(at.radio(key="modo").value, "lectura")
-        self.assertTrue(self.boton(at, "abortar_tarjeta").disabled)                                    # Abortar deshabilitado sin corrida
+        self.assertTrue(self.boton(at, "abortar_cola").disabled)                                      # Abortar deshabilitado sin corrida
         self.assertNotIn("rep_pre", [u.key for u in at.get("file_uploader")])                           # el PRE se pide solo en Aplicar
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])                                  # Service Types ya no se configura en pantalla
 
@@ -263,27 +309,6 @@ class App(unittest.TestCase):
         at.radio(key="modo").set_value("lectura").run()
         self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
 
-    def test_ejecutar_lanza_el_script_con_el_entorno_correcto(self):
-        self.configurar()
-        at = self.app()
-        at.text_input(key="base_url").set_value("https://prueba.example/tp")
-        at.number_input(key="fila").set_value(2)
-        at.run()
-        with mock.patch("subprocess.Popen", ProcFalso):
-            at = self.boton(at, "ejecutar_revision").click().run()
-        self.assertFalse(at.exception)
-        args, kw = ProcFalso.llamada
-        self.assertTrue(args[0][1].endswith(os.path.join("scripts", "substitute_doble", "substitute_doble.py")))
-        env = kw["env"]
-        self.assertEqual((env["TOURPLAN_USERNAME"], env["TOURPLAN_PASSWORD"]), ("daiana", "secreta"))
-        self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_FILA"], env["TOURPLAN_BASE_URL"]), ("lectura", "2", "https://prueba.example/tp"))
-        self.assertEqual(env["TOURPLAN_FECHA_HASTA"], "31/12/49")
-        self.assertRegex(env["TOURPLAN_FECHA_DESDE"], r"^\d\d/\d\d/\d\d$")
-        self.assertEqual(env["TOURPLAN_SHEET_URL"], "https://docs.google.com/spreadsheets/d/XYZ/edit")
-        self.assertEqual(env["TOURPLAN_PUDO_SERVICE_TYPES"], "")                                       # la app ya no pasa Service Types
-        self.assertEqual(kw["stdin"], __import__("subprocess").DEVNULL)                                # nunca queda esperando una consola
-        self.assertTrue(Path(env["TOURPLAN_CONFIRM_DIR"]).is_dir())
-
     def test_la_url_del_sheet_solo_se_pide_en_configuracion(self):
         user_config.guardar({"tp_usuario": "u", "tp_password": "p", "headless": False, "sheet_urls": {}})
         at = self.app()
@@ -295,16 +320,6 @@ class App(unittest.TestCase):
                              "sheet_urls": {"substitute_doble": "https://docs.google.com/spreadsheets/d/Z/edit"}})
         at = self.app()
         self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
-
-    def test_fechas_invalidas_bloquean(self):
-        from datetime import date
-        self.configurar()
-        at = self.app()
-        at.date_input(key="desde").set_value(date(2027, 1, 10))
-        at.date_input(key="hasta").set_value(date(2027, 1, 5))
-        at.run()
-        self.assertTrue(self.boton(at, "ejecutar_revision").disabled)
-        self.assertIn("un rango de fechas válido", self.textos(at))
 
     def test_botones_de_confirmacion(self):
         self.configurar()

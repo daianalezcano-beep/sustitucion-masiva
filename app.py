@@ -290,11 +290,6 @@ div:has(> .st-key-barra_corrida):not(:has(.sd-run)) { display: none; }
 .sd-cola-titulo { font-size: 15px !important; font-weight: 600; margin: 0 !important; }
 .sd-nota { font-size: 12px !important; color: var(--sd-muted); margin: 0 !important; }
 
-/* pasos (navegación) */
-.st-key-paso { margin-top: 6px; }
-.st-key-paso [data-testid="stButtonGroup"] { width: 100%; }
-.st-key-paso button { min-height: 56px; flex: 1; justify-content: flex-start; padding: 6px 18px; }
-
 /* tarjetas */
 .st-key-tarjeta_lectura, .st-key-tarjeta_aplicar, .st-key-tarjeta_comparar { background: var(--sd-surface); border-radius: 10px; }
 .st-key-tarjeta_aplicar { border-color: var(--sd-danger-line) !important; }
@@ -306,19 +301,8 @@ div:has(> .st-key-barra_corrida):not(:has(.sd-run)) { display: none; }
     color: var(--sd-accent); font-size: 12px; font-weight: 600; flex: none; }
 .sd-etiqueta { font-size: 12px; font-weight: 600; color: var(--sd-muted); letter-spacing: .04em; text-transform: uppercase; }
 
-/* opciones de modo / origen como tarjetas seleccionables */
-.st-key-modo, .st-key-origen { width: 100% !important; }
-.st-key-modo [data-testid="stRadioGroup"], .st-key-origen [data-testid="stRadioGroup"] { display: grid !important;
-    grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
-.st-key-modo [data-testid="stRadioGroup"] > div, .st-key-origen [data-testid="stRadioGroup"] > div { border: 1.5px solid var(--sd-line2);
-    border-radius: 10px; padding: 10px 14px; background: var(--sd-surface); margin: 0; }
-.st-key-modo [data-testid="stRadioGroup"] > div:has(input:checked), .st-key-origen [data-testid="stRadioGroup"] > div:has(input:checked) {
-    border-color: var(--sd-accent); background: var(--sd-accent-bg); }
-.st-key-tarjeta_aplicar .st-key-modo [data-testid="stRadioGroup"] > div:has(input:checked) { border-color: var(--sd-danger-solid);
-    background: var(--sd-danger-bg); }
-
 /* lista de requisitos */
-.sd-reqs { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.sd-reqs { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 22px; font-size: 13px; }
 .sd-reqs li { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .sd-reqs .ok { color: var(--sd-ok); } .sd-reqs .no { color: var(--sd-muted); }
 .st-key-tarjeta_aplicar .sd-reqs .no { color: var(--sd-danger); }
@@ -382,31 +366,38 @@ def dialogo_configuracion():
         usuario = st.text_input("Usuario de Tourplan", value=cfg.get("tp_usuario", ""))
         password = st.text_input("Contraseña de Tourplan", value=cfg.get("tp_password", ""), type="password")
         sheet = st.text_input("URL del Google Sheet de esta herramienta", value=cfg.get("sheet_urls", {}).get(CLAVE_SHEET, ""))
+        url_tp = st.text_input("URL de Tourplan", value=_url_tourplan(),
+                               help="Viene con producción. Cambiala solo si querés probar a propósito contra otro ambiente (test).")
         headless = st.checkbox("Correr sin ventana de Chrome visible (no recomendado: no vas a poder mirar el modal)",
                                value=bool(cfg.get("headless", False)))
         if st.form_submit_button("Guardar", type="primary"):
-            cfg.update({"tp_usuario": usuario, "tp_password": password, "headless": headless})
+            cfg.update({"tp_usuario": usuario, "tp_password": password, "headless": headless, "tp_base_url": url_tp.strip()})
             cfg.setdefault("sheet_urls", {})[CLAVE_SHEET] = sheet
             user_config.guardar(cfg)
             st.rerun()
 
 
+def _url_tourplan():
+    """URL de Tourplan de la configuración (producción si no se cambió)."""
+    return (user_config.cargar().get("tp_base_url") or "").strip() or PRODUCCION_URL
+
+
 def render_encabezado():
     usuario, _ = user_config.tp_credenciales_default()
-    c0, c1, c2 = st.columns([0.6, 5, 5], vertical_alignment="center")
-    if c0.button("⚙️", key="btn_config", help="Configuración (usuario de Tourplan, Sheet)"):
-        dialogo_configuracion()
+    c1, c2, c3 = st.columns([5, 5, 0.6], vertical_alignment="center")
     c1.markdown('<p class="sd-titulo">Actualización de costos</p><p class="sd-subtitulo">mediante sustitución de servicios</p>',
                 unsafe_allow_html=True)
     if usuario:
         chips = f'<span class="sd-chip">✔ Usuario: {_h(usuario)}</span>'
-        if _sheet_url_guardada():
-            chips += '<span class="sd-chip">✔ Sheet vinculado</span>'
-        else:
-            chips += '<span class="sd-chip mal">Falta la URL del Sheet</span>'
+        chips += ('<span class="sd-chip">✔ Sheet vinculado</span>' if _sheet_url_guardada() else '<span class="sd-chip mal">Falta la URL del Sheet</span>')
     else:
         chips = '<span class="sd-chip mal">⚠ Falta configurar el usuario de Tourplan</span>'
+    url = _url_tourplan()
+    chips += ('<span class="sd-chip">Tourplan: producción</span>' if url.rstrip("/") == PRODUCCION_URL
+              else f'<span class="sd-chip mal">⚠ Tourplan: {_h(url)}</span>')
     c2.markdown(f'<div class="sd-chips">{chips}</div>', unsafe_allow_html=True)
+    if c3.button("⚙️", key="btn_config", help="Configuración (usuario de Tourplan, Sheet, URL de Tourplan)"):
+        dialogo_configuracion()
     if not usuario and not st.session_state.get("_config_abierta_sola"):       # la primera vez se abre sola, una vez por sesión
         st.session_state["_config_abierta_sola"] = True
         dialogo_configuracion()
@@ -428,6 +419,7 @@ def _cerrar_si_termino(estado):
         estado["running"] = False
         estado["mensaje"] = _mensaje_final(estado["returncode"], estado["modo"])
         estado["aviso_cerrado"] = False
+        st.session_state["_reiniciar_confirmo"] = True            # la confirmación de Aplicar vale para una sola corrida
         _refrescar_conteo(estado, _sheet_url_guardada())      # la cola está arriba: que refleje el resultado
         st.rerun()
 
@@ -492,7 +484,7 @@ def render_cola(estado, sheet_url):
         _refrescar_conteo(estado, sheet_url)
         estado["ultimo_conteo"] = time.time()
     with st.container(border=True, key="cola_trabajo"):
-        c1, c2, c3 = st.columns([2.2, 7, 1.4], vertical_alignment="center")
+        c1, c2, c3, c4 = st.columns([2.2, 6.2, 1.3, 1.3], vertical_alignment="center")
         plan = st.session_state.get("_plan_reporte")
         por_cargar = len(plan["a_cargar"]) if plan else 0
         nota = ("Se actualiza sola cada 10 s" if estado["running"] else "Leída del Google Sheet")
@@ -512,6 +504,8 @@ def render_cola(estado, sheet_url):
         if c3.button("🔄 Refrescar", disabled=estado["running"] or not sheet_url, use_container_width=True, key="refrescar"):
             _refrescar_conteo(estado, sheet_url)
             st.rerun()
+        c4.button("⏹ Abortar", key="abortar_cola", disabled=not estado["running"] or estado["abort_pedido"], use_container_width=True,
+                  help="Corta al terminar la combinación en curso y hace logout de Tourplan.", on_click=_pedir_abortar, args=(estado,))
 
 
 # ── Paso 1 · Ejecutar ───────────────────────────────────────────────────────
@@ -551,10 +545,6 @@ def render_cargar_reporte(estado, bloqueado):
     c[5].metric("Tiempo estimado", reporte_entrada.texto_duracion(r["Segundos estimados"]))
     if r["Desde"]:
         st.caption(f"El reporte cubre servicios del {r['Desde']:%d/%m/%Y} al {r['Hasta']:%d/%m/%Y}.")
-        desde_p, hasta_p = st.session_state.get("desde"), st.session_state.get("hasta")
-        if desde_p and hasta_p and (desde_p > r["Desde"].date() or hasta_p < r["Hasta"].date()):
-            st.warning(f"En Servicios desde/hasta ({desde_p:%d/%m/%Y} – {hasta_p:%d/%m/%Y}) no cubren todo el rango del reporte: "
-                       "esas reservas quedarían sin procesar.")
     if plan.get("pendientes_en_hoja"):
         st.warning(f"La hoja ya tiene {plan['pendientes_en_hoja']} fila(s) PENDIENTE: al ejecutar se van a procesar junto con las que cargues ahora.")
     if r.get("Líneas de Department sin clasificar"):
@@ -586,7 +576,7 @@ def render_cargar_reporte(estado, bloqueado):
 
 
 def _verificar_requisitos(p, pend, pre_nombre, confirmo):
-    """Lista de requisitos para ejecutar: [(estado, texto)] con estado 'ok' | 'no' | 'neutro', y la lista de lo que falta."""
+    """Requisitos para ejecutar: ([(estado, texto)] con estado 'ok' | 'no' | 'neutro', lo que falta). Solo lo obligatorio."""
     aplicar = p["modo"] == "aplicar"
     items, faltan = [], []
     config_ok = bool(p["usuario"] and p["password"] and p["sheet_url"])
@@ -595,25 +585,14 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo):
         faltan.append("configurar el usuario y el Sheet (engranaje)")
     if pend is None:
         items.append(("neutro", "Combinaciones pendientes: sin leer todavía (tocá Refrescar en la cola)"))
-    elif p["fila"]:
-        items.append(("ok", f"Se va a procesar solo la fila {p['fila']} del Sheet"))
     else:
         items.append(("ok" if pend > 0 else "no", f"Combinaciones pendientes en el Sheet ({p['tipo_reservas']}): {pend}"))
         if pend == 0:
             faltan.append("combinaciones pendientes")
-    error_rango = L.validar_rango(datetime.combine(p["desde"], datetime.min.time()) if p["desde"] else None,
-                                  datetime.combine(p["hasta"], datetime.min.time()) if p["hasta"] else None)
-    if error_rango:
-        items.append(("no", error_rango))
-        faltan.append("un rango de fechas válido")
-    if not str(p["base_url"] or "").strip():
-        items.append(("no", "Falta la URL de Tourplan (Avanzado)"))
-        faltan.append("la URL de Tourplan")
     if aplicar:
         items.append(("ok" if pre_nombre else "no", f"PRE adjuntado: {pre_nombre}" if pre_nombre else "Falta el reporte PRE (obligatorio en Aplicar)"))
         if not pre_nombre:
             faltan.append("adjuntar el reporte PRE")
-        items.append(("ok" if confirmo else "no", "Confirmación de que se modifican reservas reales"))
         if not confirmo:
             faltan.append("confirmar el modo Aplicar")
     return items, faltan
@@ -621,10 +600,9 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo):
 
 def render_ejecutar(estado):
     bloqueado = estado["running"]
-    hoy = date.today()
     if st.session_state.pop("_volver_a_pendientes", False):         # tras confirmar una carga se vuelve al origen «pendientes del Sheet»
         st.session_state["origen"] = "pendientes"
-    if st.session_state.pop("_reiniciar_confirmo", False):          # la confirmación de Aplicar vale para una sola corrida
+    if st.session_state.pop("_reiniciar_confirmo", False):          # la confirmación de Aplicar vale para una sola corrida (se pide de nuevo al terminar)
         st.session_state["confirmo"] = False
     aplicar = st.session_state.get("modo", "lectura") == "aplicar"
     pend = _pendientes(estado)
@@ -632,77 +610,61 @@ def render_ejecutar(estado):
     with st.container(border=True, key=f"tarjeta_{'aplicar' if aplicar else 'lectura'}"):
         if aplicar:
             st.markdown('<div class="sd-bandera">⚠ MODO APLICAR · Modifica reservas reales en Tourplan</div>', unsafe_allow_html=True)
-
-        _seccion(1, "Combinaciones a procesar")
         if estado.get("aviso_carga"):
             st.success(estado.pop("aviso_carga"))
-        st.radio("Origen de las combinaciones", ["pendientes", "reporte"], key="origen", horizontal=True, disabled=bloqueado,
-                 label_visibility="collapsed",
-                 format_func=lambda k: "Usar las pendientes del Sheet" if k == "pendientes" else "Cargar un reporte nuevo (Service Status)",
-                 captions=[f"{pend} combinaciones listas para procesar." if pend is not None else "Tocá Refrescar en la cola para ver cuántas hay.",
-                           "Service Status de Tourplan. Suma combinaciones al Sheet."])
+        c1, c2, c3 = st.columns([1.2, 1, 1])
+        c1.radio("Combinaciones a procesar", ["pendientes", "reporte"], key="origen", disabled=bloqueado,
+                 format_func=lambda k: (f"Pendientes del Sheet ({pend})" if pend is not None else "Pendientes del Sheet") if k == "pendientes"
+                 else "Cargar un reporte nuevo",
+                 help="Pendientes del Sheet: lo que ya está cargado. Cargar un reporte nuevo: sube un Service Status de Tourplan y suma sus "
+                      "combinaciones al Sheet (con vista previa y confirmación).")
+        modo = c2.radio("Modo", ["lectura", "aplicar"], key="modo", disabled=bloqueado, format_func=lambda m: ETIQUETA_MODO[m],
+                        help="Solo revisar: lee y muestra qué se procesaría, sin modificar nada en Tourplan. Aplicar cambios: hace la sustitución real "
+                             "y MODIFICA reservas; pide el reporte PRE y una confirmación.")
+        tipo_reservas = c3.radio("Tipo de reservas", list(T.MODOS), key="tipo_reservas", disabled=bloqueado, format_func=lambda t: TIPO_ETIQUETA[t],
+                                 help="Separa las reservas individuales (FITS) de las de grupo por su Department en Tourplan. Cada combinación del Sheet "
+                                      "tiene su TIPO: en FITS o en GRUPOS solo se procesan las filas de ese tipo; en AMBOS, todas.")
         if st.session_state.get("origen") == "reporte":
             render_cargar_reporte(estado, bloqueado)
 
-        _seccion(2, "Modo y fechas")
-        modo = st.radio("Modo", ["lectura", "aplicar"], key="modo", horizontal=True, disabled=bloqueado, label_visibility="collapsed",
-                        format_func=lambda m: ETIQUETA_MODO[m], captions=[DESCRIPCION_MODO["lectura"], DESCRIPCION_MODO["aplicar"]])
-        tipo_reservas = st.radio("Tipo de reservas", list(T.MODOS), key="tipo_reservas", horizontal=True, disabled=bloqueado,
-                                 format_func=lambda t: TIPO_ETIQUETA[t], captions=[TIPO_DESCRIPCION[t] for t in T.MODOS],
-                                 help="Separa las reservas individuales (FITS) de las de grupo por su Department en Tourplan. Cada combinación "
-                                      "del Sheet tiene su TIPO: en FITS o en GRUPOS solo se procesan las filas de ese tipo; en AMBOS, todas.")
-        c1, c2 = st.columns(2)
-        desde = c1.date_input("Servicios desde", value=hoy + timedelta(days=1), min_value=date(2000, 1, 1), max_value=date(2099, 12, 31),
-                              format="DD/MM/YYYY", disabled=bloqueado, key="desde", help="Obligatoria: se ingresa en cada corrida.")
-        hasta = c2.date_input("Servicios hasta", value=date(2049, 12, 31), min_value=date(2000, 1, 1), max_value=date(2099, 12, 31),
-                              format="DD/MM/YYYY", disabled=bloqueado, key="hasta",
-                              help="Por defecto 31/12/2049: abarca todos los servicios desde la fecha de inicio.")
-        with st.expander("Avanzado"):
-            c4, c5 = st.columns([3, 1])
-            base_url = c4.text_input("URL de Tourplan", value=PRODUCCION_URL, disabled=bloqueado, key="base_url",
-                                     help="Viene con producción. Cambiala solo si querés probar a propósito contra otro ambiente.")
-            fila = c5.number_input("Solo la fila nº (0 = todas)", min_value=0, value=0, step=1, disabled=bloqueado, key="fila",
-                                   help="Para probar una combinación puntual del Sheet.")
-
         pre = None
-        _seccion(3, "Reporte PRE")
-        if modo == "aplicar":
+        if aplicar:
             pre = st.file_uploader("Reporte PRE: Product Analysis exportado ANTES de la corrida (.csv) — obligatorio en Aplicar", type=["csv"],
                                    disabled=bloqueado, key="rep_pre",
                                    help="Es la única foto de costos y ventas para revisar la corrida después (y corregir si hace falta). Tiene que "
-                                        "cubrir todas las combinaciones PENDIENTES, con las mismas fechas Desde/Hasta. Se guarda en salida/pre_reportes "
-                                        "y el comparador lo usa como «antes».")
-        else:
-            st.caption("El reporte PRE se pide solo en modo Aplicar.")
+                                        "cubrir todas las combinaciones PENDIENTES. Se guarda en salida/pre_reportes y el comparador lo usa como «antes».")
 
         usuario, password = user_config.tp_credenciales_default()
-        p = {"modo": modo, "desde": desde, "hasta": hasta, "sheet_url": _sheet_url_guardada(), "base_url": base_url, "fila": int(fila),
-             "confirmar_ok": False, "usuario": usuario, "password": password, "pre_contenido": pre.getvalue() if pre else None,
-             "tipo_reservas": tipo_reservas}
+        hoy = date.today()
+        # Sin rango de fechas en pantalla: el Service Status ya vino filtrado. Se sustituyen los servicios desde mañana en adelante.
+        p = {"modo": modo, "desde": hoy + timedelta(days=1), "hasta": date(2049, 12, 31), "sheet_url": _sheet_url_guardada(),
+             "base_url": _url_tourplan(), "fila": 0, "confirmar_ok": False, "usuario": usuario, "password": password,
+             "pre_contenido": pre.getvalue() if pre else None, "tipo_reservas": tipo_reservas}
 
-        _seccion(4, "Ejecutar")
-        confirmo = False
-        if aplicar:
-            with st.container(key="confirmo_aplicar"):
-                confirmo = st.checkbox("**Entiendo que esto modifica reservas reales.** Se va a trabajar sobre Tourplan en producción.",
-                                       key="confirmo", disabled=bloqueado)
+        confirmo = bool(st.session_state.get("confirmo")) if aplicar else False
         items, faltan = _verificar_requisitos(p, pend, pre.name if pre else None, confirmo)
-        simbolo = {"ok": "✔", "no": "🔒" if aplicar else "○", "neutro": "○"}
-        st.markdown('<ul class="sd-reqs">' + "".join(f'<li class="{"ok" if e == "ok" else "no"}"><span>{simbolo[e]}</span><span>{_h(t)}</span></li>'
-                                                      for e, t in items) + "</ul>", unsafe_allow_html=True)
+        if not bloqueado:
+            simbolo = {"ok": "✔", "no": "🔒" if aplicar else "○", "neutro": "○"}
+            st.markdown('<ul class="sd-reqs">' + "".join(f'<li class="{"ok" if e == "ok" else "no"}"><span>{simbolo[e]}</span><span>{_h(t)}</span></li>'
+                                                          for e, t in items) + "</ul>", unsafe_allow_html=True)
+            sin_tipo = (estado.get("pend_tipo") or {}).get("", 0)
+            if sin_tipo and tipo_reservas != T.TIPO_AMBOS:
+                st.caption(f"ℹ️ Hay {sin_tipo} fila(s) PENDIENTE sin TIPO (cargadas antes de esta columna): solo se procesan en el tipo AMBOS.")
+            for aviso in E.advertencias(p):
+                st.caption(f"⚠️ {aviso}")
+        if aplicar and not bloqueado:
+            with st.container(key="confirmo_aplicar"):
+                st.checkbox("**Entiendo que esto modifica reservas reales.** Se va a trabajar sobre Tourplan en producción.", key="confirmo")
         errores = E.validar_parametros(p)
-        sin_tipo = (estado.get("pend_tipo") or {}).get("", 0)
-        if sin_tipo and tipo_reservas != T.TIPO_AMBOS:
-            st.caption(f"ℹ️ Hay {sin_tipo} fila(s) PENDIENTE sin TIPO (cargadas antes de esta columna): solo se procesan en el tipo AMBOS.")
-        for aviso in E.advertencias(p):
-            st.caption(f"⚠️ {aviso}")
-        c1, c2, _ = st.columns([2, 1, 3])
+        c1, c2, _ = st.columns([2, 1.6, 3])
         ejecutar = c1.button("🔒 Aplicar en producción" if aplicar else "▶ Ejecutar revisión", type="secondary" if aplicar else "primary",
                              key="ejecutar_aplicar" if aplicar else "ejecutar_revision", use_container_width=True,
                              disabled=bloqueado or bool(faltan) or bool(errores))
-        c2.button("⏹ Abortar", key="abortar_tarjeta", disabled=not bloqueado or estado["abort_pedido"], use_container_width=True,
-                  on_click=_pedir_abortar, args=(estado,))
-        total = 1 if p["fila"] else pend
+        if c2.button("📊 Comparar reportes", key="ir_comparar_manual", type="tertiary", use_container_width=True,
+                     help="Compara un reporte Product Analysis de antes con uno de después."):
+            st.session_state["paso"] = "cmp"
+            st.rerun()
+        total = pend
         if bloqueado:
             st.markdown('<div class="sd-pista">Corrida en curso: los parámetros quedan bloqueados hasta que termine o la abortes.</div>',
                         unsafe_allow_html=True)
@@ -721,7 +683,6 @@ def render_ejecutar(estado):
             st.error(error_pre)
         else:
             lanzar(estado, p)
-            st.session_state["_reiniciar_confirmo"] = True
             st.rerun()
 
 
@@ -808,8 +769,13 @@ def _resultado_comparacion(res):
         st.error(f"No pude mostrar las tablas: {type(e).__name__}: {e}")
 
 
+def _volver_a_ejecutar():
+    st.session_state["paso"] = "run"
+
+
 def render_comparar(estado):
     with st.container(border=True, key="tarjeta_comparar"):
+        st.button("← Volver a Ejecutar", key="volver_ejecutar", type="tertiary", on_click=_volver_a_ejecutar)
         st.markdown('<p class="sd-cola-titulo">Comparar antes / después</p><p class="sd-nota">Control de costo y venta. '
                     "El PRE de la última corrida en modo aplicar queda guardado y se puede usar como «antes».</p>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
@@ -849,23 +815,6 @@ def render_comparar(estado):
 
 
 # ── Navegación por pasos ────────────────────────────────────────────────────
-
-def _etiqueta_paso(estado, paso):
-    """Texto del paso con su estado visible. La identidad del paso es fija ('run' / 'cmp'): solo cambia lo que se lee."""
-    if paso == "run":
-        pend = _pendientes(estado)
-        cola = f" · {pend} pendientes" if pend is not None else ""
-        if estado["running"]:
-            return "1 · Ejecutar  🔵 Corrida en curso"
-        if st.session_state.get("modo") == "aplicar":
-            return "1 · Ejecutar  " + ("🟢 Aplicar · PRE adjuntado" if st.session_state.get("rep_pre") else "🔴 Aplicar · falta el PRE") + cola
-        return "1 · Ejecutar  ⚪ Solo revisar" + cola
-    res = st.session_state.get("_comparacion")
-    if not res:
-        return "2 · Comparar  ⚪ Sin comparar"
-    nv = res["resumen"]["Venta modificada"]
-    return "2 · Comparar  " + (f"🔴 {nv} {'venta cambió' if nv == 1 else 'ventas cambiaron'}" if nv else "🟢 La venta no cambió")
-
 
 # ── Consola ─────────────────────────────────────────────────────────────────
 
@@ -973,12 +922,10 @@ def main():
 
     st.fragment(run_every=10 if estado["running"] else None)(render_cola)(estado, sheet_url)
 
-    # Los dos pasos se dibujan siempre y se oculta el que no está activo: así no se pierde lo cargado (PRE, fechas, modo)
-    # al cambiar de paso, cosa que pasaría si el paso inactivo no se dibujara.
+    # Ejecutar y Comparar se dibujan siempre y se oculta el que no está activo (así no se pierde lo cargado, como el PRE). Se pasa de uno
+    # a otro con «Ir a Comparar» (al terminar una corrida), «Comparar reportes» y «Volver a Ejecutar».
     st.session_state.setdefault("paso", "run")
-    st.segmented_control("Paso", ["run", "cmp"], key="paso", required=True, label_visibility="collapsed", width="stretch",
-                         format_func=lambda k: _etiqueta_paso(estado, k))
-    oculto = "cmp" if st.session_state.get("paso", "run") == "run" else "run"
+    oculto = "cmp" if st.session_state["paso"] == "run" else "run"
     st.markdown(f"<style>.st-key-panel_{oculto} {{ display: none; }}</style>", unsafe_allow_html=True)
     with st.container(key="panel_run"):
         render_ejecutar(estado)
