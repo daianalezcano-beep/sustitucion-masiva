@@ -40,7 +40,7 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
   Lógica en `common/reporte_entrada.py`.
 - **Cola de trabajo:** se lee sola al abrir la página, al analizar un reporte (la hoja ya se leyó para detectar duplicados) y al confirmar una carga; **Refrescar** la vuelve a leer a mano. Mientras corre se vuelve a leer la hoja cada ~10 s y se muestra el avance (`combinación k de N`). En modo lectura las filas
   siguen `PENDIENTE` por diseño (solo cambian los errores), así que el contador no se mueve: el avance se ve en la barra.
-- **Comparar reportes antes / después:** paso 2 · Comparar. Se suben los dos reportes Product Analysis (CSV, exportados con las mismas
+- **Comparar reportes antes / después:** paso 2 · Comparar. Cada línea lleva su **Tipo** (FITS / GRUPOS / SIN CLASIFICAR, por el Department de la Reference): hay una tabla de resultados por tipo y un filtro por tipo, y el **tipo que se corrió** (se completa solo con el PRE guardado, cuyo nombre lleva el tipo) deja a las líneas del otro tipo como grupo de control junto con los proveedores por asignar. Se suben los dos reportes Product Analysis (CSV, exportados con las mismas
   opciones), se toca **Comparar** y muestra por línea cuánto cambió el costo y si cambió la venta (Retail / Agent), con las líneas con venta modificada
   primero y un CSV descargable. Lógica en `common/comparador.py` (acepta `;` o `,` y fechas `21-oct-26` o `21-Oct-2026`; no guarda los archivos).
 - **Abortar:** corta al terminar la combinación en curso (completa) y hace logout.

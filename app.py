@@ -125,7 +125,7 @@ def _verificar_pre(p):
         lista = "; ".join(" / ".join(k) for k in faltan[:10]) + (f"; … (+{len(faltan) - 10})" if len(faltan) > 10 else "")
         return (f"El reporte PRE no cubre {len(faltan)} de las combinaciones PENDIENTES (Location / Supplier / Service Type / Code) "
                 f"en las fechas elegidas: {lista}. Exportá el PRE con esos filtros, o sacá esas filas de PENDIENTE."), None
-    return None, pre_reporte.guardar_pre(p["pre_contenido"], SALIDA / pre_reporte.CARPETA)
+    return None, pre_reporte.guardar_pre(p["pre_contenido"], SALIDA / pre_reporte.CARPETA, p["tipo_reservas"])
 
 def lanzar(estado, p):
     run_dir = Path(tempfile.mkdtemp(prefix="substitute_"))
@@ -339,6 +339,10 @@ div:has(> .st-key-barra_corrida):not(:has(.sd-run)) { display: none; }
 .sd-tile .l { font-size: 12px; color: var(--sd-muted); }
 .sd-tile.mal { border-color: var(--sd-danger-line); background: var(--sd-danger-bg); } .sd-tile.mal .n { color: var(--sd-danger); }
 .sd-tile.info .n { color: var(--sd-accent); }
+.sd-por-tipo { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0 0 10px; }
+.sd-por-tipo th { text-align: left; font-size: 12px; color: var(--sd-muted); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--sd-line); }
+.sd-por-tipo td { padding: 6px 10px; border-bottom: 1px solid var(--sd-line); font-variant-numeric: tabular-nums; }
+.sd-por-tipo td.mal { color: var(--sd-danger); font-weight: 600; }
 .sd-control { font-size: 12.5px !important; color: var(--sd-muted); margin: 0 0 6px !important; }
 
 /* consola */
@@ -770,20 +774,31 @@ def _resultado_comparacion(res):
     if "Control: líneas no tocadas" in r:
         n_ctl, n_ctl_mal = r["Control: líneas no tocadas"], r["Control: con venta modificada"]
         if n_ctl == 0:
-            st.markdown('<p class="sd-control">Control: el reporte no tiene líneas de proveedores por asignar (que la herramienta no toca) para comparar.</p>',
+            st.markdown('<p class="sd-control">Control: el reporte no tiene líneas que la herramienta no toque (proveedores por asignar o del otro tipo) para comparar.</p>',
                         unsafe_allow_html=True)
         elif n_ctl_mal:
-            st.warning(f"Control: la venta también cambió en {n_ctl_mal} de {n_ctl} líneas que la herramienta NO toca (proveedores por asignar). "
+            st.warning(f"Control: la venta también cambió en {n_ctl_mal} de {n_ctl} líneas que la herramienta NO toca (proveedores por asignar o del otro tipo). "
                        "Eso apunta a una causa externa a las sustituciones (tipo de cambio, comisiones, tarifas).")
         else:
-            st.markdown(f'<p class="sd-control">✔ Control: {n_ctl} líneas «por asignar» (la herramienta no las toca): la venta no cambió.</p>',
+            st.markdown(f'<p class="sd-control">✔ Control: {n_ctl} líneas que la herramienta no toca (por asignar o del otro tipo): la venta no cambió.</p>',
                         unsafe_allow_html=True)
+    por_tipo = res.get("por_tipo") or {}
+    if por_tipo:
+        cab = ("Tipo", "Líneas", "Venta modificada", "Costo cambió", "Otros cambios", "Solo en uno", "Sin cambios")
+        filas_t = "".join("<tr><td>" + _h(t) + "</td>" + "".join(f'<td class="{"mal" if k == "Venta modificada" and v[k] else ""}">{v[k]}</td>'
+                                                                 for k in cab[1:]) + "</tr>" for t, v in por_tipo.items())
+        st.markdown('<table class="sd-por-tipo"><tr>' + "".join(f"<th>{c}</th>" for c in cab) + f"</tr>{filas_t}</table>", unsafe_allow_html=True)
     try:
-        cuentas = {k: len(_lineas_del_filtro(res["lineas"], k)) for k in FILTROS_COMPARACION}
+        lineas_tipo = res["lineas"]
+        if len(por_tipo) > 1:
+            tipo_sel = st.pills("Tipo", ["TODOS"] + list(por_tipo), default="TODOS", required=True, key="filtro_tipo", label_visibility="collapsed",
+                                format_func=lambda t: "Todos los tipos" if t == "TODOS" else f"{t} ({por_tipo[t]['Líneas']})")
+            lineas_tipo = [x for x in res["lineas"] if tipo_sel == "TODOS" or x["Tipo"] == tipo_sel]
+        cuentas = {k: len(_lineas_del_filtro(lineas_tipo, k)) for k in FILTROS_COMPARACION}
         filtro = st.pills("Filtrar el detalle", list(FILTROS_COMPARACION), default="venta" if cuentas["venta"] else "costo", required=True,
                           key="filtro_comparacion", label_visibility="collapsed",
                           format_func=lambda k: f"{FILTROS_COMPARACION[k]} ({cuentas[k]})")
-        filas = _lineas_del_filtro(res["lineas"], filtro)
+        filas = _lineas_del_filtro(lineas_tipo, filtro)
         if filas:
             st.dataframe([{"": ICONO_RESULTADO.get(x["Resultado"], ""), **x} for x in filas], hide_index=True, use_container_width=True,
                          height="content")
@@ -806,12 +821,22 @@ def render_comparar(estado):
                 f"Usar el PRE guardado de la última corrida ({datetime.fromtimestamp(guardado.stat().st_mtime):%d/%m/%Y %H:%M})",
                 value=True, key="usar_pre_guardado")
         antes = None if usar_guardado else c1.file_uploader("Reporte ANTES (.csv)", type=["csv"], key="rep_antes", label_visibility="collapsed")
+        if guardado and usar_guardado and pre_reporte.tipo_de_pre(guardado) and st.session_state.get("_tipo_cmp_origen") != guardado.name:
+            st.session_state["tipo_comparacion"] = pre_reporte.tipo_de_pre(guardado)       # el PRE guardado dice qué tipo se corrió
+            st.session_state["_tipo_cmp_origen"] = guardado.name
+        tipo_corrido = st.radio("Tipo de reservas que se corrió", list(T.MODOS), key="tipo_comparacion", horizontal=True,
+                                format_func=lambda t: TIPO_ETIQUETA[t],
+                                help="Las líneas del otro tipo no se tocaron: se usan como grupo de control (si la venta cambió ahí, la causa no es la "
+                                     "sustitución). Con un PRE guardado se completa solo; con AMBOS no se separa nada.")
         c2.markdown('<span class="sd-etiqueta">Después (POST)</span>', unsafe_allow_html=True)
         despues = c2.file_uploader("Reporte DESPUÉS (.csv)", type=["csv"], key="rep_despues", label_visibility="collapsed")
         antes_bytes = guardado.read_bytes() if usar_guardado else (antes.getvalue() if antes else None)
         if st.button("Comparar", type="primary", disabled=not (antes_bytes and despues), key="comparar"):
             try:
-                res = comparador.comparar(antes_bytes, despues.getvalue(), no_tocada=reporte_entrada.es_por_asignar)
+                def no_tocada(f):       # lo que la herramienta no procesó: proveedores por asignar y, si se corrió un solo tipo, el otro tipo
+                    otro_tipo = tipo_corrido != T.TIPO_AMBOS and comparador.tipo_de_linea(f) != tipo_corrido
+                    return reporte_entrada.es_por_asignar(f) or otro_tipo
+                res = comparador.comparar(antes_bytes, despues.getvalue(), no_tocada=no_tocada)
                 st.session_state["_comparacion"] = res
                 st.session_state["filtro_comparacion"] = "venta" if res["resumen"]["Venta modificada"] else "costo"
                 st.rerun()      # para que la etiqueta del paso (arriba) ya muestre el veredicto
@@ -839,7 +864,7 @@ def _etiqueta_paso(estado, paso):
     if not res:
         return "2 · Comparar  ⚪ Sin comparar"
     nv = res["resumen"]["Venta modificada"]
-    return "2 · Comparar  " + (f"🔴 {nv} ventas cambiaron" if nv else "🟢 La venta no cambió")
+    return "2 · Comparar  " + (f"🔴 {nv} {'venta cambió' if nv == 1 else 'ventas cambiaron'}" if nv else "🟢 La venta no cambió")
 
 
 # ── Consola ─────────────────────────────────────────────────────────────────

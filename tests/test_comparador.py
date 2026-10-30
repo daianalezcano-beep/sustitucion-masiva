@@ -124,5 +124,35 @@ class Comparador(unittest.TestCase):
         self.assertEqual(C.a_csv([]), b"")
 
 
+class TipoDeReserva(unittest.TestCase):
+    CAB2 = CAB
+    PRE = (CAB + "\n"
+           "H,H,1FAGA1,F,BUE,GU,AEHTID,TF,,21-Oct-26,20,0,1,20,1,1,USD,75.97,99.30,99.30,EAFI100,X,,OK,21-Oct-26,1,,,,,,,,\n"
+           "H,H,1FAGA1,F,BUE,GU,AEHTID,TF,,21-Oct-26,20,0,1,20,1,1,USD,75.97,99.30,99.30,EAGP200,Y,,KK,21-Oct-26,2,,,,,,,,\n"
+           "H,H,1FAGA1,F,BUE,GU,AEHTID,TF,,21-Oct-26,20,0,1,20,1,1,USD,75.97,99.30,99.30,EAPR300,Z,,KK,21-Oct-26,3,,,,,,,,\n")
+    POST = (CAB + "\n"
+            "H,H,1FAGA1,F,BUE,GU,AEHTID,TF,,21-Oct-26,20,0,1,20,1,1,USD,81.65,99.30,99.30,EAFI100,X,,OK,21-Oct-26,1,,,,,,,,\n"     # FITS: solo costo
+            "H,H,1FAGA1,F,BUE,GU,AEHTID,TF,,21-Oct-26,20,0,1,20,1,1,USD,81.65,0.00,0.00,EAGP200,Y,,KK,21-Oct-26,2,,,,,,,,\n"        # GRUPOS: venta a 0
+            "H,H,1FAGA1,F,BUE,GU,AEHTID,TF,,21-Oct-26,20,0,1,20,1,1,USD,75.97,99.30,99.30,EAPR300,Z,,KK,21-Oct-26,3,,,,,,,,\n")    # sin clasificar
+
+    def test_cada_linea_lleva_su_tipo(self):
+        r = C.comparar(self.PRE.encode(), self.POST.encode())
+        self.assertEqual({x["Reference"]: x["Tipo"] for x in r["lineas"]}, {"EAFI100": "FITS", "EAGP200": "GRUPOS", "EAPR300": "SIN CLASIFICAR"})
+        self.assertIn("Tipo", C.a_csv(r["lineas"]).decode("utf-8-sig").splitlines()[0])
+
+    def test_resumen_por_tipo(self):
+        t = C.comparar(self.PRE.encode(), self.POST.encode())["por_tipo"]
+        self.assertEqual(list(t), ["FITS", "GRUPOS", "SIN CLASIFICAR"])
+        self.assertEqual((t["FITS"]["Venta modificada"], t["FITS"]["Costo cambió"]), (0, 1))
+        self.assertEqual((t["GRUPOS"]["Venta modificada"], t["GRUPOS"]["Costo cambió"]), (1, 1))         # la de venta también cambió de costo
+        self.assertEqual((t["SIN CLASIFICAR"]["Sin cambios"], t["SIN CLASIFICAR"]["Líneas"]), (1, 1))
+
+    def test_el_otro_tipo_sirve_de_control(self):
+        corrido = "FITS"
+        r = C.comparar(self.PRE.encode(), self.POST.encode(), no_tocada=lambda f: C.tipo_de_linea(f) != corrido)
+        self.assertEqual(r["resumen"]["Control: líneas no tocadas"], 2)                                  # GRUPOS y SIN CLASIFICAR
+        self.assertEqual(r["resumen"]["Control: con venta modificada"], 1)                              # la venta de grupos cambió aunque no se tocó
+
+
 if __name__ == "__main__":
     unittest.main()

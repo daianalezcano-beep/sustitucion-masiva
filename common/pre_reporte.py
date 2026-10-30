@@ -64,13 +64,19 @@ def combinaciones_faltantes(filas, pendientes, desde=None, hasta=None):
     return faltan
 
 
-def guardar_pre(contenido, carpeta):
-    """Guarda el PRE como <carpeta>/pre_AAAAMMDD-HHMMSS.csv y devuelve la ruta."""
+def guardar_pre(contenido, carpeta, tipo=None):
+    """Guarda el PRE como <carpeta>/pre_AAAAMMDD-HHMMSS[_TIPO].csv (el tipo de reservas de la corrida, si se da) y devuelve la ruta."""
     carpeta = Path(carpeta)
     carpeta.mkdir(parents=True, exist_ok=True)
-    ruta = carpeta / f"pre_{datetime.now():%Y%m%d-%H%M%S}.csv"
+    ruta = carpeta / f"pre_{datetime.now():%Y%m%d-%H%M%S}{'_' + tipo if tipo else ''}.csv"
     ruta.write_bytes(contenido)
     return ruta
+
+
+def tipo_de_pre(ruta):
+    """Tipo de reservas con que se guardó ese PRE ('FITS' / 'GRUPOS' / 'AMBOS'), o None si el nombre no lo dice."""
+    sufijo = Path(ruta).stem.split("_")[-1]
+    return sufijo if sufijo in T.MODOS else None
 
 
 def ultimo_pre(carpeta):

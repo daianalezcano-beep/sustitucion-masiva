@@ -13,6 +13,8 @@ import re
 from collections import Counter
 from datetime import datetime
 
+from common import tipo_reserva as T
+
 TOLERANCIA = 0.005
 MESES = {"ene": 1, "jan": 1, "feb": 2, "mar": 3, "abr": 4, "apr": 4, "may": 5, "jun": 6, "jul": 7, "ago": 8, "aug": 8,
          "sep": 9, "set": 9, "oct": 10, "nov": 11, "dic": 12, "dec": 12}
@@ -163,13 +165,39 @@ def comparar(antes, despues, no_tocada=None):
     # Variaciones de la venta (Retail) más comunes: si casi todas las líneas cambiaron en el mismo porcentaje, apunta a un factor común
     # (por ejemplo un cambio de tipo de cambio) y no a algo propio de cada reserva.
     variaciones = Counter((x["Δ Retail %"], x["Moneda"]) for x in lineas if x["Resultado"] == "Venta modificada" and x["Δ Retail %"] is not None)
-    return {"resumen": resumen, "lineas": lineas,
+    return {"resumen": resumen, "lineas": lineas, "por_tipo": resumen_por_tipo(lineas),
             "variaciones_venta": [{"Δ Retail %": p, "Moneda": m, "Líneas": n} for (p, m), n in variaciones.most_common(8)]}
+
+
+SIN_CLASIFICAR = "SIN CLASIFICAR"
+TIPOS_DE_LINEA = (T.TIPO_FITS, T.TIPO_GRUPOS, SIN_CLASIFICAR)
+
+
+def tipo_de_linea(f):
+    """'FITS', 'GRUPOS' o 'SIN CLASIFICAR' según el Department de la Reference de la línea del reporte."""
+    return T.tipo_de_reserva(f.get("Reference")) or SIN_CLASIFICAR
+
+
+def resumen_por_tipo(lineas):
+    """{tipo: {'Líneas', 'Venta modificada', 'Costo cambió', 'Otros cambios', 'Solo en uno', 'Sin cambios'}} solo para los tipos que tienen líneas.
+    'Costo cambió' cuenta, como el resumen general, también las de venta u otros cambios cuyo costo cambió."""
+    out = {}
+    for tipo in TIPOS_DE_LINEA:
+        l = [x for x in lineas if x["Tipo"] == tipo]
+        if not l:
+            continue
+        cuenta = lambda r: sum(1 for x in l if x["Resultado"] == r)
+        out[tipo] = {"Líneas": len(l), "Venta modificada": cuenta("Venta modificada"),
+                     "Costo cambió": cuenta("Costo cambió") + sum(1 for x in l if x["Resultado"] in ("Venta modificada", "Otros cambios")
+                                                                   and x["Costo antes"] != x["Costo después"]),
+                     "Otros cambios": cuenta("Otros cambios"), "Solo en uno": cuenta("Solo antes") + cuenta("Solo después"),
+                     "Sin cambios": cuenta("Sin cambios")}
+    return out
 
 
 def _linea(f, g, no_tocada=None):
     base = f or g
-    out = {"Grupo": "No tocada" if no_tocada and no_tocada(base) else "Sustituida", "Supplier": base.get("Supplier", ""),
+    out = {"Grupo": "No tocada" if no_tocada and no_tocada(base) else "Sustituida", "Tipo": tipo_de_linea(base), "Supplier": base.get("Supplier", ""),
            "Reference": base.get("Reference", ""), "Voucher": base.get("VoucherNo", ""), "Pax": base.get("Pax", ""), "Qty": base.get("Qty", ""), "Booking": base.get("BookingName", ""), "Loc": base.get("Loc", ""),
            "Service": base.get("Service", ""), "Option": base.get("Option", ""), "Description": base.get("Description", ""),
            "Fecha": (fecha(base.get("Date", "")) or datetime.min).strftime("%d/%m/%Y") if fecha(base.get("Date", "")) else base.get("Date", "")}

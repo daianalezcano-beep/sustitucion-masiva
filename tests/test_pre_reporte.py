@@ -59,6 +59,14 @@ class Pre(unittest.TestCase):
         self.assertEqual(P.combinaciones_faltantes(filas, [dict(fila("BUE", "1FAGA1", "GU", "CT4ID"), TIPO="FITS")]),
                          [("BUE", "1FAGA1", "GU", "CT4ID", "FITS")])
 
+    def test_el_tipo_viaja_en_el_nombre_del_pre_guardado(self):
+        d = os.path.join(tempfile.mkdtemp(), "pre_reportes")
+        r = P.guardar_pre(b"abc", d, "GRUPOS")
+        self.assertTrue(r.name.endswith("_GRUPOS.csv"))
+        self.assertEqual((P.tipo_de_pre(r), P.ultimo_pre(d)), ("GRUPOS", r))
+        sin = P.guardar_pre(b"abc", os.path.join(d, "otra"))
+        self.assertIsNone(P.tipo_de_pre(sin))
+
     def test_guardar_y_ultimo(self):
         d = tempfile.mkdtemp()
         self.assertIsNone(P.ultimo_pre(os.path.join(d, "no_existe")))
