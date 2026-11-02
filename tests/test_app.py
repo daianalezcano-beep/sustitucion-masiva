@@ -126,7 +126,7 @@ class App(unittest.TestCase):
             self.assertEqual(self.boton(at, "ejecutar_revision").label, "Ejecutar")
             self.elegir(at, "origen", "reporte")                                                   # elegir «Reporte nuevo» bloquea Ejecutar
             self.assertTrue(self.boton(at, "ejecutar_revision").disabled)
-            self.assertIn("Para ejecutar falta: terminar la carga del reporte nuevo.", self.textos(at))
+            self.assertIn("🔒 Reporte sin cargar", self.textos(at))
             self.elegir(at, "origen", "pendientes")
             self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
 
@@ -310,6 +310,7 @@ class App(unittest.TestCase):
         self.configurar()
         filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}, {"ESTADO": "PENDIENTE", "TIPO": "FITS"}, {"ESTADO": "OK", "TIPO": "FITS"}]
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
         with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
              mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
             at.run()
@@ -323,6 +324,7 @@ class App(unittest.TestCase):
         filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}, {"ESTADO": "PENDIENTE", "TIPO": "GRUPOS"}, {"ESTADO": "PENDIENTE", "TIPO": "GRUPOS"},
                  {"ESTADO": "PENDIENTE", "TIPO": ""}]
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
         with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
              mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
             at.run()
@@ -400,6 +402,7 @@ class App(unittest.TestCase):
 
         filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}]
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
         with mock.patch("common.sheets_client.conectar_sheets", return_value=WSFalsa()), \
              mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])), \
              mock.patch("subprocess.Popen", ProcFalso):
@@ -412,12 +415,14 @@ class App(unittest.TestCase):
     def test_sin_fechas_en_el_sheet_se_usa_de_manana_en_adelante_y_se_avisa(self):
         self.configurar()
         at = self.app()
+        at.session_state["_req_detalle"] = True; at.run()
         self.assertIn("Fechas de los servicios: sin definir en la pestaña PARAMETROS", self.textos(at))
 
     def test_costos_manualizados_lista_de_hoy_cumple_el_requisito_y_la_vieja_no(self):
         self.configurar()
         for fecha, ok in ((datetime.now(), True), (datetime(2026, 1, 5, 10, 0), False)):
             at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+            at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
             at.session_state["_corrida"] = estado_falso(excl_info=(3, 2, fecha), conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
                                                         pend_tipo={"FITS": 1, "GRUPOS": 0, "": 0})
             at.session_state["modo"] = "aplicar"
@@ -430,6 +435,7 @@ class App(unittest.TestCase):
         self.configurar()
         lista_vieja = (3, 2, datetime(2026, 1, 5, 10, 0))                                         # guardada en el Sheet hace tiempo
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
         at.session_state["_corrida"] = estado_falso(excl_info=lista_vieja, conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
                                                     pend_tipo={"FITS": 1, "GRUPOS": 0, "": 0})
         at.session_state["modo"] = "aplicar"
@@ -456,6 +462,7 @@ class App(unittest.TestCase):
     def test_lista_pegada_a_mano_en_el_sheet_pide_confirmar_que_esta_actualizada(self):
         self.configurar()
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
         at.session_state["_corrida"] = estado_falso(excl_info=(4, 3, None, 1), conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
                                                     pend_tipo={"FITS": 1, "GRUPOS": 0, "PROMO": 0, "": 0})
         at.session_state["modo"] = "aplicar"
@@ -515,6 +522,7 @@ class App(unittest.TestCase):
         self.configurar(separar=False)
         filas = [{"ESTADO": "PENDIENTE", "TIPO": ""}, {"ESTADO": "PENDIENTE", "TIPO": ""}, {"ESTADO": "PENDIENTE", "TIPO": "GRUPOS"}]
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
         with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
              mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])), \
              mock.patch("subprocess.Popen", ProcFalso):
@@ -537,10 +545,11 @@ class App(unittest.TestCase):
 
     def test_sin_configurar_no_se_puede_ejecutar(self):
         at = self.app()
+        at.session_state["_req_detalle"] = True; at.run()
         self.assertFalse(at.exception)
         self.assertIn("Falta configurar el usuario de Tourplan", self.textos(at))
         self.assertTrue(self.boton(at, "ejecutar_revision").disabled)
-        self.assertIn("configurar el usuario y el Sheet", self.textos(at))
+        self.assertIn("🔒 Configuración", self.textos(at))
 
     def test_con_configuracion_se_puede_ejecutar_en_lectura(self):
         self.configurar()
@@ -553,6 +562,21 @@ class App(unittest.TestCase):
         self.assertNotIn("rep_pre", [u.key for u in at.get("file_uploader")])                           # el PRE se pide solo en Aplicar
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])                                  # Service Types ya no se configura en pantalla
 
+    def test_requisitos_compactos_y_detalle_plegable(self):
+        self.configurar()
+        filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
+            at.run()
+            t = self.textos(at)
+            self.assertIn("✔ Todo listo", t)
+            self.assertIn("Requisitos <b>3 de 3</b>", t)
+            self.assertNotIn("Usuario de Tourplan:", t)                                                 # el detalle está plegado
+            self.boton(at, "ver_detalle_req").click().run()
+            self.assertIn("Usuario de Tourplan:", self.textos(at))
+            self.assertEqual(self.boton(at, "ver_detalle_req").label, "Ocultar detalle")
+
     def test_aplicar_exige_pre_y_confirmacion(self):
         self.configurar()
         at = self.app()
@@ -564,12 +588,18 @@ class App(unittest.TestCase):
         self.assertNotIn("confirmar_ok", [c.key for c in at.checkbox])
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])
         self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
-        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE · costos manualizados: pegar la lista en la pestaña EXCLUSIONES o tildar «no hay costos manualizados» (en la sección Costos manualizados) · confirmar el modo Aplicar.",
-                      self.textos(at))
+        t = self.textos(at)
+        for pastilla in ("🔒 Falta el PRE", "🔒 Costos manualizados", "🔒 Confirmación"):
+            self.assertIn(pastilla, t)
+        self.assertNotIn("Para ejecutar falta", t)                                                      # ya no hay mensaje rojo duplicado bajo el botón
+        self.assertIn("Requisitos <b>3 de 6</b>", t)
         self.assertIn("sin_manuales", [c.key for c in at.checkbox])
         at.checkbox(key="confirmo").check().run()
         at.checkbox(key="sin_manuales").check().run()
-        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE.", self.textos(at))                # confirmación y costos manualizados listos, el PRE no
+        t = self.textos(at)
+        self.assertIn("🔒 Falta el PRE", t)                                                             # confirmación y costos manualizados listos, el PRE no
+        self.assertNotIn("🔒 Confirmación", t)
+        self.assertIn("Requisitos <b>5 de 6</b>", t)
         self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
         self.elegir(at, "modo", "lectura")
         self.assertFalse(self.boton(at, "ejecutar_revision").disabled)

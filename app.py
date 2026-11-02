@@ -370,6 +370,10 @@ div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 
 .sd-reqs b { font-weight: 700; }
 .sd-reqs .ok { color: var(--sd-ok); } .sd-reqs .no { color: var(--sd-muted); }
 .st-key-tarjeta_aplicar .sd-reqs .no { color: var(--sd-danger); }
+.sd-reqc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 14px; }
+.sd-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 99px; font-size: 13px; font-weight: 600; border: 1px solid; }
+.sd-pill.mal { color: var(--sd-danger); background: var(--sd-danger-bg); border-color: var(--sd-danger-line); }
+.sd-pill.ok { color: var(--sd-ok); background: var(--sd-ok-bg); border-color: var(--sd-ok-line); }
 .sd-falta { color: var(--sd-danger); font-weight: 500; font-size: 14px !important; margin-top: 6px; text-align: center; }
 .sd-pista { color: var(--sd-ink); font-size: 14px !important; margin-top: 6px; text-align: center; }
 .sd-pista b { font-weight: 700; }
@@ -850,6 +854,21 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None), exc
     return items, faltan
 
 
+_PASTILLAS = (("configurar", "Configuración"), ("combinaciones pendientes", "Pendientes: 0"), ("un rango", "Fechas"), ("terminar la carga", "Reporte sin cargar"),
+              ("adjuntar", "Falta el PRE"), ("costos manualizados", "Costos manualizados"), ("confirmar el modo", "Confirmación"))
+
+
+def _resumen_requisitos(p, items, faltan):
+    """(cumplidos, total, [pastillas]) para la línea compacta de requisitos. Una pastilla por cada requisito que falta, con texto corto (sale de `faltan`)."""
+    pastillas = []
+    for f in faltan:
+        corto = next((t for clave, t in _PASTILLAS if f.startswith(clave)), None)
+        if corto and corto not in pastillas:
+            pastillas.append(corto)
+    total = len(items) + (1 if p["modo"] == "aplicar" else 0) + (1 if p.get("origen") == "reporte" else 0)      # la confirmación y la carga del reporte no son ítems de la lista
+    return max(total - len(pastillas), 0), total, pastillas
+
+
 def _selector(clave, etiqueta, numero, opciones, formato, deshabilitado, ayuda=None):
     """Grupo de opciones como control segmentado, con su etiqueta numerada y una línea de ayuda debajo (que cambia con la opción elegida).
     Siempre hay una opción activa (required=True). `ayuda`: {opción: texto} o None (se reserva el alto para que el diseño no salte)."""
@@ -952,9 +971,19 @@ def render_ejecutar(estado):
         lista_actualizada = bool(st.session_state.get("lista_actualizada")) if aplicar else False
         items, faltan = _verificar_requisitos(p, pend, pre.name if pre else None, confirmo, rango, estado.get("excl_info"), sin_manuales, lista_actualizada)
         if not bloqueado:
-            simbolo = {"ok": "✔", "no": "🔒" if aplicar else "○", "neutro": "○"}
-            st.markdown('<ul class="sd-reqs">' + "".join(f'<li class="{"ok" if e == "ok" else "no"}"><span>{simbolo[e]}</span><span>{t}</span></li>'
-                                                          for e, t in items) + "</ul>", unsafe_allow_html=True)
+            hechos, total_req, pastillas = _resumen_requisitos(p, items, faltan)
+            detalle = bool(st.session_state.get("_req_detalle"))
+            c_req, c_ver = st.columns([6, 1.4], vertical_alignment="center")
+            c_req.markdown('<div class="sd-reqc"><span>Requisitos <b>' + f"{hechos} de {total_req}</b></span>"
+                           + ("".join(f'<span class="sd-pill mal">🔒 {_h(t)}</span>' for t in pastillas) if pastillas else '<span class="sd-pill ok">✔ Todo listo</span>')
+                           + "</div>", unsafe_allow_html=True)
+            if c_ver.button("Ocultar detalle" if detalle else "Ver detalle", key="ver_detalle_req", type="tertiary", use_container_width=True):
+                st.session_state["_req_detalle"] = not detalle
+                st.rerun()
+            if detalle:
+                simbolo = {"ok": "✔", "no": "🔒" if aplicar else "○", "neutro": "○"}
+                st.markdown('<ul class="sd-reqs">' + "".join(f'<li class="{"ok" if e == "ok" else "no"}"><span>{simbolo[e]}</span><span>{t}</span></li>'
+                                                              for e, t in items) + "</ul>", unsafe_allow_html=True)
             sin_tipo = (estado.get("pend_tipo") or {}).get("", 0)
             if sin_tipo and tipo_reservas != T.TIPO_AMBOS:
                 st.caption(f"ℹ️ Hay {sin_tipo} fila(s) PENDIENTE sin TIPO (cargadas antes de esta columna): solo se procesan en el tipo AMBOS.")
@@ -971,8 +1000,6 @@ def render_ejecutar(estado):
         if bloqueado:
             st.markdown('<div class="sd-pista">Corrida en curso: los parámetros quedan bloqueados hasta que termine o la abortes.</div>',
                         unsafe_allow_html=True)
-        elif faltan:
-            st.markdown(f'<div class="sd-falta">🔒 Para ejecutar falta: {_h(" · ".join(faltan))}.</div>', unsafe_allow_html=True)
     if ejecutar:
         error_pre = None
         try:                # las fechas pudieron editarse en el Sheet desde la última lectura: se vuelven a leer
