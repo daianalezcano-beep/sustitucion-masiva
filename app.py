@@ -376,6 +376,10 @@ div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 
 .st-key-costos_manualizados button:first-child { border-left: 0 !important; }
 .st-key-costos_manualizados button[aria-checked="true"] { background: var(--sd-accent) !important; }
 .st-key-costos_manualizados button[aria-checked="true"] * { color: var(--sd-on-accent) !important; font-weight: 600; }
+.sd-franja { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 14px; margin-bottom: 2px; }
+.st-key-franja_aplicar, .st-key-franja_lectura, .st-key-estado_parametros { background: var(--sd-surface); border-radius: 10px; }
+.st-key-franja_aplicar { border-color: var(--sd-danger-line) !important; }
+.st-key-abortar_franja button { border-color: var(--sd-danger-solid); color: var(--sd-danger); font-weight: 600; }
 .sd-reqc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 14px; }
 .sd-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 99px; font-size: 13px; font-weight: 600; border: 1px solid; }
 .sd-pill.mal { color: var(--sd-danger); background: var(--sd-danger-bg); border-color: var(--sd-danger-line); }
@@ -905,6 +909,77 @@ def _vista_previa(estado, pend, aplicar, n_excl):
     st.markdown('<div class="sd-previa"><b>Esto es lo que va a pasar</b><ul>' + "".join(f"<li>{t}</li>" for t in puntos) + "</ul></div>", unsafe_allow_html=True)
 
 
+def _abrir_parametros(estado, origen=None):
+    """Vuelve a la tarjeta completa de parámetros para una nueva corrida (callback de los botones del panel de estado). Restaura el modo y el origen que se
+    estaban usando (los controles no se dibujan mientras corre y pierden su valor), deja sin tildar la confirmación de Aplicar y los costos manualizados,
+    y descarta el PRE adjunto: ese archivo era el «antes» de la corrida anterior (el guardado en salida/pre_reportes sigue disponible para comparar)."""
+    foto = estado.get("foto") or {}
+    st.session_state["_params_abiertos"] = True
+    st.session_state["modo"] = foto.get("modo") or "lectura"
+    st.session_state["origen"] = origen or "pendientes"
+    st.session_state["tipo_reservas"] = foto.get("tipo_reservas") or T.TIPO_FITS
+    st.session_state["confirmo"] = False
+    st.session_state["costos_manualizados"] = None
+    st.session_state["_pre_n"] = st.session_state.get("_pre_n", 0) + 1          # clave nueva del cargador de archivos: queda vacío
+
+
+def _refrescar_cola_desde_panel(estado):
+    _refrescar_conteo(estado, _sheet_url_guardada())
+
+
+def _vista_parametros(estado):
+    """'franja' (corrida en curso), 'estado' (terminó y todavía no se abrió una corrida nueva) o 'completa' (tarjeta de parámetros). Depende del estado real de la corrida."""
+    if estado["running"]:
+        return "franja"
+    if estado.get("foto") and estado["mensaje"] is not None and not st.session_state.get("_params_abiertos"):
+        return "estado"
+    return "completa"
+
+
+def render_franja(estado):
+    """Mientras corre: resumen de los parámetros en una franja (los controles ya no se necesitan) y Abortar siempre a la vista."""
+    foto = estado.get("foto") or {}
+    aplicar = (foto.get("modo") or estado["modo"]) == "aplicar"
+    partes = []
+    if foto.get("pend") is not None:
+        partes.append(_n_combinaciones(foto["pend"]))
+    if foto.get("desde") and foto.get("hasta"):
+        partes.append(f"Fechas {foto['desde']:%d/%m/%Y} – {foto['hasta']:%d/%m/%Y}")
+    if aplicar and foto.get("pre"):
+        partes.append(f"PRE {foto['pre']}")
+    if foto.get("usuario"):
+        partes.append(foto["usuario"])
+    with st.container(border=True, key=f"franja_{'aplicar' if aplicar else 'lectura'}"):
+        c1, c2 = st.columns([9, 1.4], vertical_alignment="center")
+        c1.markdown(f'<div class="sd-franja">{_insignia("APLICANDO" if aplicar else "REVISANDO", "apl" if aplicar else "rev")}'
+                    f'<b>{_h(" · ".join(partes))}</b></div>'
+                    '<div class="sd-nota">Los parámetros ya están completos: se ocultan mientras corre.</div>', unsafe_allow_html=True)
+        c2.button("⏹ Abortar", key="abortar_franja", disabled=estado["abort_pedido"], use_container_width=True,
+                  help="Corta al terminar la combinación en curso y hace logout de Tourplan.", on_click=_pedir_abortar, args=(estado,))
+
+
+def render_estado_parametros(estado):
+    """Al terminar (finalizada o abortada): según lo que quede en la cola, invita a cargar un reporte nuevo o a preparar la próxima corrida."""
+    foto = estado.get("foto") or {}
+    pend = E.pendientes_del_modo(estado.get("pend_tipo"), foto.get("tipo_reservas") or T.TIPO_FITS)
+    with st.container(border=True, key="estado_parametros"):
+        if pend is None:
+            st.markdown("**Corrida terminada.** Tocá *Refrescar cola* para ver si quedan combinaciones pendientes.")
+            c1, c2, _ = st.columns([1.6, 1.6, 4])
+            c1.button("Refrescar cola", key="refrescar_estado", on_click=_refrescar_cola_desde_panel, args=(estado,), use_container_width=True,
+                      disabled=not _sheet_url_guardada())
+            c2.button("Preparar nueva corrida", key="preparar_nueva", type="primary", on_click=_abrir_parametros, args=(estado,), use_container_width=True)
+        elif pend == 0:
+            st.markdown("**No quedan combinaciones pendientes.** Para una nueva corrida, cargá un reporte nuevo o poné filas en PENDIENTE en el Sheet.")
+            c1, c2, _ = st.columns([1.6, 1.6, 4])
+            c1.button("Cargar reporte nuevo", key="cargar_reporte_nuevo", type="primary", on_click=_abrir_parametros, args=(estado, "reporte"), use_container_width=True)
+            c2.button("Refrescar cola", key="refrescar_estado", on_click=_refrescar_cola_desde_panel, args=(estado,), use_container_width=True,
+                      disabled=not _sheet_url_guardada())
+        else:
+            st.markdown(f"**{'Queda 1 combinación pendiente' if pend == 1 else f'Quedan {pend} combinaciones pendientes'}.**")
+            st.button("Preparar nueva corrida", key="preparar_nueva", type="primary", on_click=_abrir_parametros, args=(estado,))
+
+
 def render_ejecutar(estado):
     bloqueado = estado["running"]
     if st.session_state.pop("_volver_a_pendientes", False):         # tras confirmar una carga se vuelve al origen «pendientes del Sheet»
@@ -912,6 +987,13 @@ def render_ejecutar(estado):
     if st.session_state.pop("_reiniciar_confirmo", False):          # la confirmación de Aplicar vale para una sola corrida (se pide de nuevo al terminar)
         st.session_state["confirmo"] = False
         st.session_state["costos_manualizados"] = None
+    vista = _vista_parametros(estado)
+    if vista == "franja":
+        render_franja(estado)
+        return
+    if vista == "estado":
+        render_estado_parametros(estado)
+        return
     for clave, inicial in (("origen", "pendientes"), ("modo", "lectura"), ("tipo_reservas", T.TIPO_FITS)):
         st.session_state.setdefault(clave, inicial)
     aplicar = st.session_state["modo"] == "aplicar"
@@ -946,7 +1028,7 @@ def render_ejecutar(estado):
             st.markdown('<div class="sd-glab sd-aparte">Reporte PRE</div>'
                         '<div class="sd-texto">Product Analysis exportado ANTES de la corrida (.csv), con las mismas fechas y filtros que el Service Status — <b>obligatorio en Aplicar</b></div>',
                         unsafe_allow_html=True)
-            pre = st.file_uploader("Reporte PRE", type=["csv"], disabled=bloqueado, key="rep_pre", label_visibility="collapsed",
+            pre = st.file_uploader("Reporte PRE", type=["csv"], disabled=bloqueado, key="rep_pre" if not st.session_state.get("_pre_n") else f"rep_pre_{st.session_state['_pre_n']}", label_visibility="collapsed",
                                    help="Es la única foto de costos y ventas para revisar la corrida después (y corregir si hace falta). Tiene que "
                                         "cubrir todas las combinaciones PENDIENTES. Se guarda en salida/pre_reportes y el comparador lo usa como «antes».")
 
@@ -1014,6 +1096,9 @@ def render_ejecutar(estado):
         if error_pre:
             st.error(error_pre)
         else:
+            estado["foto"] = {"modo": p["modo"], "pend": pend, "desde": p["desde"], "hasta": p["hasta"], "pre": pre.name if pre else None,
+                              "usuario": p["usuario"], "tipo_reservas": p["tipo_reservas"]}          # lo que muestra la franja resumen (los controles no se dibujan mientras corre)
+            st.session_state["_params_abiertos"] = False
             lanzar(estado, p)
             st.rerun()
 

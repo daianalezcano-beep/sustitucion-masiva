@@ -292,9 +292,11 @@ class App(unittest.TestCase):
         self.assertIn("APLICANDO", barra)
         self.assertIn("Combinación 2 de 3", barra)
         self.assertTrue(self.boton(at, "refrescar").disabled)
-        self.assertTrue(self.boton(at, "ejecutar_revision").disabled)
+        self.assertNotIn("ejecutar_revision", [b.key for b in at.button])                              # los parámetros se reemplazan por la franja resumen
         self.assertFalse(self.boton(at, "abortar_barra").disabled)
-        self.assertTrue(all(g.proto.disabled for g in at.get("button_group") if g.key in ("origen", "modo", "tipo_reservas")))   # los parámetros quedan bloqueados
+        self.assertFalse(self.boton(at, "abortar_franja").disabled)
+        self.assertIn("Los parámetros ya están completos: se ocultan mientras corre.", self.textos(at))
+        self.assertFalse([g for g in at.get("button_group") if g.key in ("origen", "modo", "tipo_reservas")])
 
     def test_cargar_desde_reporte_esta_en_el_paso_ejecutar(self):
         self.configurar()
@@ -550,6 +552,61 @@ class App(unittest.TestCase):
         self.assertNotIn("rep_pre", [u.key for u in at.get("file_uploader")])                           # el PRE se pide solo en Aplicar
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])                                  # Service Types ya no se configura en pantalla
 
+    FOTO = {"modo": "aplicar", "pend": 3, "desde": datetime(2026, 12, 1).date(), "hasta": datetime(2026, 12, 31).date(), "pre": "pre_x.csv", "usuario": "daiana",
+            "tipo_reservas": "AMBOS"}
+
+    def test_franja_resumen_mientras_corre_con_los_datos_de_la_corrida(self):
+        self.configurar()
+        run_dir = Path(tempfile.mkdtemp())
+        at = self.app(estado_falso(running=True, run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag", modo="aplicar", foto=dict(self.FOTO)))
+        t = self.textos(at)
+        self.assertIn("APLICANDO", t)
+        self.assertIn("3 combinaciones · Fechas 01/12/2026 – 31/12/2026 · PRE pre_x.csv · daiana", t)
+        self.assertNotIn("Requisitos", t)                                                              # sin requisitos en rojo mientras corre
+        self.boton(at, "abortar_franja").click().run()
+        self.assertTrue(self.boton(at, "abortar_franja").disabled)                                    # abortar desde la franja igual que desde la barra
+
+    def _terminada(self, pend_tipo, **kw):
+        self.configurar()
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_corrida"] = estado_falso(mensaje=("success", "Terminó bien."), modo="aplicar", returncode=0, foto=dict(self.FOTO),
+                                                    conteo={"Pendiente": 0, "OK": 3, "Error": 0, "Duplicado": 0, "Otro": 0}, pend_tipo=pend_tipo, **kw)
+        with mock.patch("common.sheets_client.conectar_sheets", side_effect=RuntimeError("sin red en la prueba")):
+            return at.run()
+
+    def test_al_terminar_sin_pendientes_ofrece_cargar_reporte_o_refrescar(self):
+        at = self._terminada({"FITS": 0, "GRUPOS": 0, "PROMO": 0, "": 0})
+        t = self.textos(at)
+        self.assertIn("No quedan combinaciones pendientes.", t)
+        self.assertNotIn("Requisitos", t)                                                              # no reaparecen los requisitos en rojo
+        claves = [b.key for b in at.button]
+        self.assertIn("cargar_reporte_nuevo", claves)
+        self.assertIn("refrescar_estado", claves)
+        self.boton(at, "cargar_reporte_nuevo").click().run()
+        self.assertEqual(at.session_state["origen"], "reporte")
+        self.assertEqual(at.session_state["modo"], "aplicar")                                          # se restaura el modo
+        self.assertIn("analizar_reporte", [b.key for b in at.button])                                  # tarjeta completa
+
+    def test_al_terminar_con_pendientes_cuenta_en_singular_y_plural(self):
+        for n, texto in ((1, "Queda 1 combinación pendiente."), (4, "Quedan 4 combinaciones pendientes.")):
+            at = self._terminada({"FITS": 0, "GRUPOS": 0, "PROMO": 0, "": 0, "AMBOS": 0} | {"FITS": n})
+            self.assertIn(texto, self.textos(at))
+            self.assertNotIn("1 combinaciones", self.textos(at))
+            self.assertIn("preparar_nueva", [b.key for b in at.button])
+
+    def test_preparar_nueva_corrida_limpia_confirmacion_costos_y_pre(self):
+        at = self._terminada({"FITS": 2, "GRUPOS": 0, "PROMO": 0, "": 0})
+        at.session_state["confirmo"] = True
+        at.session_state["costos_manualizados"] = "no_hay"
+        self.boton(at, "preparar_nueva").click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state["modo"], "aplicar")
+        self.assertFalse(at.session_state["confirmo"])
+        self.assertIsNone(at.session_state["costos_manualizados"])
+        self.assertIn("ejecutar_aplicar", [b.key for b in at.button])                                  # tarjeta completa, Ejecutar bloqueado hasta cumplir los requisitos
+        self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
+        self.assertEqual(at.session_state["_pre_n"], 1)                                                # el cargador del PRE arranca vacío (clave nueva)
+
     def test_requisitos_compactos_y_detalle_plegable(self):
         self.configurar()
         filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}]
@@ -610,7 +667,7 @@ class App(unittest.TestCase):
         at = self.app(estado_falso(running=True, log_lines=["hola\n"], stop_file=run_dir / "ABORTAR.flag", run_dir=run_dir, modo="aplicar"))
         self.assertFalse(at.exception)
         self.assertTrue(any("espera tu confirmación" in w.value for w in at.warning))
-        self.assertTrue(self.boton(at, "ejecutar_revision").disabled)                                  # mientras corre no se puede lanzar otra
+        self.assertNotIn("ejecutar_revision", [b.key for b in at.button])                              # mientras corre no se puede lanzar otra
         self.assertFalse(self.boton(at, "abortar_barra").disabled)
         self.boton(at, "conf_si").click().run()
         self.assertEqual((run_dir / E.ARCHIVO_RESPUESTA).read_text(encoding="utf-8"), "SI")
