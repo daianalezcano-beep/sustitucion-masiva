@@ -34,6 +34,7 @@ from common import glosario
 from common import parametros_sheet
 from common import pre_reporte
 from common import reporte_entrada
+from common import resultado
 from common import tipo_reserva as T
 from common import ejecucion as E
 from common import user_config
@@ -359,6 +360,8 @@ div:has(> .st-key-barra_corrida):not(:has(.sd-run)) { display: none; }
 .sd-falta { color: var(--sd-danger); font-weight: 500; font-size: 14px !important; margin-top: 6px; text-align: center; }
 .sd-pista { color: var(--sd-ink); font-size: 14px !important; margin-top: 6px; text-align: center; }
 .sd-pista b { font-weight: 700; }
+.sd-previa { border: 1px solid var(--sd-line); border-radius: 8px; padding: 8px 14px; margin: 8px 0; font-size: 14px; }
+.sd-previa ul { margin: 4px 0 0 18px; padding: 0; }
 .st-key-ejecutar_revision, .st-key-ejecutar_aplicar { display: flex !important; flex-direction: column; align-items: center; width: 100% !important; margin-top: 12px; }
 .st-key-ejecutar_revision [data-testid="stButton"], .st-key-ejecutar_aplicar [data-testid="stButton"] { display: flex; justify-content: center; width: 100%; }
 .st-key-ejecutar_revision button, .st-key-ejecutar_aplicar button { width: 240px; min-height: 50px; }
@@ -576,6 +579,55 @@ def render_barra(estado):
             st.rerun()
 
 
+def _bloque_explicacion(clave, filas):
+    """Una explicación (qué pasó / riesgo / qué hacer) con las combinaciones a las que aplica."""
+    que, riesgo, hacer = resultado.explicar(clave)
+    lista = "".join(f"<li>Fila {x['fila']}: {_h(x['nombre'])}</li>" for x in filas[:12]) + (f"<li>… y {len(filas) - 12} más</li>" if len(filas) > 12 else "")
+    grave = clave in ("COLGADAS", "PROVISORIO_EN_USO")
+    st.markdown(f'<div class="sd-run {"mal" if grave else "warn"}" style="display:block"><b>{_h(que)}</b>'
+                f'<ul style="margin:4px 0 6px 18px">{lista}</ul>'
+                f'<div><b>¿Hay riesgo?</b> {_h(riesgo)}</div><div><b>Qué hacer:</b> {_h(hacer)}</div></div>', unsafe_allow_html=True)
+
+
+def render_resultado(estado):
+    """Resumen al terminar una corrida: qué salió bien, qué hay que revisar y qué hacer en cada caso. Se arma con la consola de la corrida."""
+    if estado["running"] or not estado["mensaje"] or estado.get("aviso_cerrado") or not estado["log_lines"]:
+        return
+    r = resultado.resumir_corrida(estado["log_lines"])
+    comb = [x for x in r["combinaciones"] if x["clave"]]
+    ok = [x for x in comb if x["clave"] in ("OK", "LEIDA")]
+    a_revisar = [x for x in comb if x["clave"] not in ("OK", "LEIDA")]
+    _, total = _progreso(estado["log_lines"])
+    sin_procesar = max(total - len(comb), 0)
+    aplicar = estado["modo"] == "aplicar"
+    with st.container(border=True, key="resultado_corrida"):
+        c0, cx = st.columns([9, 1], vertical_alignment="center")
+        c0.markdown(f'<span class="sd-cola-titulo">Resultado de la corrida</span> &nbsp; '
+                    f'{_insignia("APLICAR" if aplicar else "REVISAR", "apl" if aplicar else "rev")}'
+                    + (f' <span class="sd-nota">· duró {_h(r["duracion"])}</span>' if r["duracion"] else ""), unsafe_allow_html=True)
+        cx.button("✕", key="cerrar_resultado", help="Cerrar este resumen", on_click=_cerrar_aviso, args=(estado,))
+        m = st.columns(4)
+        m[0].metric("Leídas" if not aplicar else "Procesadas OK", len(ok))
+        m[1].metric("A revisar", len(a_revisar))
+        m[2].metric("Líneas excluidas (costo manualizado)", r["excluidas"])
+        m[3].metric("Sin procesar (siguen PENDIENTE)", sin_procesar)
+        if r["a_medio_camino"]:
+            que, riesgo, hacer = resultado.explicar_bloqueo_previo()
+            st.markdown(f'<div class="sd-run mal" style="display:block"><b>{_h(que)}</b><div><b>¿Hay riesgo?</b> {_h(riesgo)}</div>'
+                        f'<div><b>Qué hacer:</b> {_h(hacer)}</div></div>', unsafe_allow_html=True)
+        for clave in ("COLGADAS", "PROVISORIO_EN_USO", "REVISAR", "NO_SUSTITUIDA", "EXCLUIDA", "OTRO"):       # lo más grave primero
+            filas = [x for x in a_revisar if x["clave"] == clave]
+            if filas:
+                _bloque_explicacion(clave, filas)
+        if r["excluidas"]:
+            st.markdown(f"**{r['excluidas']} línea(s) con costo manualizado no se tocaron**: actualizalas a mano. El motivo de cada una está en la consola y en SUBSTITUTE_DETALLE (fase EXCLUIDA).")
+        if sin_procesar and (r["detenida"] or a_revisar):
+            st.markdown(f"**{sin_procesar} combinación(es) quedaron sin procesar** y siguen en PENDIENTE: se procesan al ejecutar de nuevo, una vez resuelto lo de arriba.")
+        if not a_revisar and not r["a_medio_camino"] and estado["returncode"] == 0:
+            st.markdown("**Siguiente paso:** " + ("exportá el reporte POST de Tourplan y compará costos y ventas en **Comparar reportes** (botón *Ir a Comparar* arriba)."
+                                                 if aplicar else "si todo se ve bien, elegí el modo **Aplicar cambios**."))
+
+
 # ── Cola de trabajo ─────────────────────────────────────────────────────────
 
 def _progreso(lineas):
@@ -776,6 +828,29 @@ def _selector(clave, etiqueta, numero, opciones, formato, deshabilitado, ayuda=N
     return valor
 
 
+def _vista_previa(estado, pend, aplicar, n_excl):
+    """Qué va a pasar al tocar Ejecutar: cuántas combinaciones, cuánto tarda (según corridas anteriores del mismo modo), qué se excluye y qué se espera de la usuaria."""
+    modo = "aplicar" if aplicar else "lectura"
+    cuantas = _n_combinaciones(pend) if pend is not None else "las combinaciones PENDIENTES"
+    puntos = [f"Va a {'procesar' if aplicar else 'leer'} <b>{cuantas}</b>" + (" (cada una: ida al provisorio, vuelta y verificación; la venta no cambia)." if aplicar else " y no modifica nada.")]
+    logs = []
+    for c in [c for c in _historial_corridas() if c["modo"] == modo][:5]:
+        try:
+            logs.append(c["log"].read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            pass
+    seg = resultado.tiempo_estimado(logs, pend) if pend else None
+    puntos.append(f"Tiempo estimado: <b>~{reporte_entrada.texto_duracion(seg)}</b> (según tus corridas anteriores)." if seg
+                  else "Tiempo estimado: todavía no hay corridas anteriores para calcularlo.")
+    if aplicar:
+        puntos.append(f"Costos manualizados: <b>{n_excl}</b> línea(s) en la lista; no se tocan y se informan al final." if n_excl
+                      else "Costos manualizados: ninguna línea excluida.")
+        puntos.append("Si algo falla, la corrida se detiene sola y te explica qué hacer. Podés abortar en cualquier momento.")
+    else:
+        puntos.append("Al terminar te muestra qué se encontró; las filas siguen PENDIENTE.")
+    st.markdown('<div class="sd-previa"><b>Esto es lo que va a pasar</b><ul>' + "".join(f"<li>{t}</li>" for t in puntos) + "</ul></div>", unsafe_allow_html=True)
+
+
 def render_ejecutar(estado):
     bloqueado = estado["running"]
     if st.session_state.pop("_volver_a_pendientes", False):         # tras confirmar una carga se vuelve al origen «pendientes del Sheet»
@@ -856,6 +931,8 @@ def render_ejecutar(estado):
             with st.container(key="confirmo_aplicar"):
                 st.checkbox(":red[**Entiendo que esto modifica reservas reales.**] Se va a trabajar sobre Tourplan en producción.", key="confirmo")
         errores = E.validar_parametros(p)
+        if not bloqueado and not faltan:
+            _vista_previa(estado, pend, aplicar, (estado.get("excl_info") or (0,))[0] if not p.get("sin_exclusiones") else 0)
         ejecutar = st.button("Ejecutar", icon=":material/lock:" if aplicar else ":material/play_arrow:", type="secondary" if aplicar else "primary",
                              key="ejecutar_aplicar" if aplicar else "ejecutar_revision", disabled=bloqueado or bool(faltan) or bool(errores))
         if bloqueado:
@@ -863,11 +940,6 @@ def render_ejecutar(estado):
                         unsafe_allow_html=True)
         elif faltan:
             st.markdown(f'<div class="sd-falta">🔒 Para ejecutar falta: {_h(" · ".join(faltan))}.</div>', unsafe_allow_html=True)
-        else:
-            cuantas = f"<b>{_n_combinaciones(pend)}</b>" if pend is not None else "las combinaciones <b>PENDIENTES</b>"
-            texto = (f"Va a modificar reservas reales en {cuantas}. Podés abortar en cualquier momento." if aplicar
-                     else f"Va a leer {cuantas}. No modifica nada.")
-            st.markdown(f'<div class="sd-pista">{texto}</div>', unsafe_allow_html=True)
     if ejecutar:
         error_pre = None
         try:                # las fechas pudieron editarse en el Sheet desde la última lectura: se vuelven a leer
@@ -1143,6 +1215,7 @@ def main():
         st.fragment(run_every=1 if estado["running"] else None)(render_barra)(estado)
 
     st.fragment(run_every=10 if estado["running"] else None)(render_cola)(estado, sheet_url)
+    render_resultado(estado)
 
     oculto = "cmp" if st.session_state["paso"] == "run" else "run"
     st.markdown(f"<style>.st-key-panel_{oculto} {{ display: none; }}</style>", unsafe_allow_html=True)

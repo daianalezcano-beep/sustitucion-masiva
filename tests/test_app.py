@@ -139,7 +139,7 @@ class App(unittest.TestCase):
             with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
                  mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
                 at.run()
-            self.assertIn(f"Va a leer {esperado}. No modifica nada.", self.textos(at))
+            self.assertIn(f"Va a leer {esperado} y no modifica nada.", self.textos(at))
             self.assertIn("Ejecutar", self.boton(at, "ejecutar_revision").label)
 
     def test_las_vistas_son_pestanas_de_texto_y_la_inactiva_se_oculta(self):
@@ -478,6 +478,30 @@ class App(unittest.TestCase):
         with mock.patch("common.sheets_client.conectar_sheets", side_effect=RuntimeError("sin red en la prueba")):
             at.run()
         self.assertIn("2 línea(s) excluida(s) por costo manualizado", self.textos(at))
+
+    def test_al_terminar_se_muestra_el_resumen_con_que_hacer(self):
+        self.configurar()
+        log = ["Filas PENDIENTE a procesar: 3\n", "Fila 2: BUE/1ACOS1/GU/AEEZID\n", "  ✅ OK: 8 reserva(s)\n",
+               "Fila 3: BUE/1ACOS1/GU/AEHTID\n", "  ⚠ ERROR_COLGADAS: Falló después del OK de la ida\n",
+               "🛑 CORRIDA DETENIDA: x\n", "🏁 Fin. Duración: 3m 05s · filas OK=1 ERROR=1 · reservas leídas=8\n"]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_corrida"] = estado_falso(running=True, finished=True, log_lines=log, returncode=E.EXIT_DETENIDA, modo="aplicar")
+        with mock.patch("common.sheets_client.conectar_sheets", side_effect=RuntimeError("sin red en la prueba")):
+            at.run()
+        t = self.textos(at)
+        self.assertIn("Resultado de la corrida", t)
+        self.assertIn("Fila 3: BUE/1ACOS1/GU/AEHTID", t)
+        self.assertIn("¿Hay riesgo?", t)
+        self.assertIn("1 combinación(es) quedaron sin procesar", t)
+
+    def test_la_vista_previa_aparece_antes_de_ejecutar(self):
+        self.configurar()
+        filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}] * 2
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])):
+            at.run()
+        self.assertIn("Esto es lo que va a pasar", self.textos(at))
 
     def test_la_seccion_de_costos_manualizados_esta_y_se_bloquea_al_correr(self):
         self.configurar()
