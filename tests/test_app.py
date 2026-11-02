@@ -88,7 +88,6 @@ class App(unittest.TestCase):
         self.assertLess(pos("button_group", "Vista"), pos("button_group", "Combinaciones a procesar"))
         self.assertLess(pos("button_group", "Combinaciones a procesar"), pos("markdown", "Cola de trabajo"))     # la cola va en la barra lateral derecha
         self.assertLess(pos("button_group", "Modo"), pos("markdown", 'class="sd-consola"'))                       # y la consola, bajo los parámetros
-        self.assertLess(pos("markdown", 'class="sd-consola"'), pos("expander", "Historial de corridas"))
 
     def test_selectores_segmentados_con_ayuda_que_cambia_y_siempre_una_opcion(self):
         self.configurar()
@@ -642,20 +641,21 @@ class App(unittest.TestCase):
                 carpetas.append(carpeta)
             (base / "diag_ignorada").mkdir(exist_ok=True)       # no es una corrida: no se lista
             carpetas.append(base / "diag_ignorada")
-            at = self.app()
+            at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+            at.session_state["lateral"] = "historial"                                                  # pestaña «Historial» de la barra lateral
+            at.run()
             self.assertFalse(at.exception)
-            historial = next(e for e in at.expander if e.label.startswith("🕘 Historial de corridas"))
-            textos = " ".join(m.value for m in historial.markdown) + " " + " ".join(str(w.value) for w in historial.markdown) + " ".join(
-                str(getattr(c, "value", "")) for c in self._aplanar(historial))
-            self.assertIn("01/01/2099 10:10:10", textos)
-            self.assertIn("01/01/2099 09:00:00", textos)
+            textos = " ".join(m.value for m in at.markdown)
+            self.assertNotIn("🕘 Historial de corridas", [e.label for e in at.expander])               # ya no es un expander al final de la página
+            self.assertIn("01/01 10:10", textos)
+            self.assertIn("01/01 09:00", textos)
             self.assertIn("APLICAR", textos)
-            self.assertIn("Con errores (1)", textos)                                                   # 1 de las 3 combinaciones dio error
+            self.assertIn("Con 1 a revisar", textos)                                                   # 1 de las 3 combinaciones dio error
             self.assertIn("3 de 3", textos)
             self.assertIn("Sin cierre", textos)                                                        # la que se cortó
-            self.assertLess(textos.index("01/01/2099 10:10:10"), textos.index("01/01/2099 09:00:00"))   # la más nueva primero
+            self.assertLess(textos.index("01/01 10:10"), textos.index("01/01 09:00"))                  # la más nueva primero
             self.assertNotIn("diag_ignorada", textos)
-            self.assertGreaterEqual(len([b for b in at.get("download_button") if b.proto.label == "Descargar"]), 2)   # una por corrida
+            self.assertGreaterEqual(len([b for b in at.get("download_button") if str(b.proto.id) and b.key and b.key.startswith("hist_")]), 2)   # una por corrida
         finally:
             for c in carpetas:
                 for f in c.glob("*"):

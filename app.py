@@ -320,6 +320,9 @@ div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 
     .st-key-fila_principal div[data-testid="stHorizontalBlock"]:has(> div[data-testid="stColumn"] .st-key-barra_lateral) > div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; flex: 1 1 auto !important; }
     div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: static; max-height: none; overflow: visible; }
 }
+.sd-hist { font-size: 13px; line-height: 1.7; } .sd-hist .sd-nota { margin-left: 2px !important; white-space: nowrap; }
+[class*="st-key-hist_"] button { min-height: 34px; padding: 0; }
+[class*="st-key-hist_"] button p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }   /* solo el ícono; el texto queda para lectores de pantalla */
 .sd-cola-titulo { font-size: 15px !important; font-weight: 600; margin: 0 !important; }
 .sd-nota { font-size: 12px !important; color: var(--sd-muted); margin: 0 !important; }
 
@@ -353,13 +356,13 @@ div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 
     color: var(--sd-on-accent) !important; font-weight: 600; }
 .st-key-modo button:nth-of-type(2)[aria-checked="true"] { background: var(--sd-danger-solid) !important; }       /* «Aplicar cambios» activo: rojo */
 .st-key-modo button:nth-of-type(2)[aria-checked="true"] * { color: #fff !important; }
-.st-key-paso { width: 100% !important; }
-.st-key-paso [role="radiogroup"] { display: flex; gap: 22px !important; width: 100%; border-bottom: 1px solid var(--sd-line2); background: transparent !important; border-radius: 0; }
-.st-key-paso button { border: 0 !important; border-bottom: 3px solid transparent !important; border-radius: 0 !important; background: transparent !important;
+.st-key-paso, .st-key-lateral { width: 100% !important; }
+.st-key-paso [role="radiogroup"], .st-key-lateral [role="radiogroup"] { display: flex; gap: 22px !important; width: 100%; border-bottom: 1px solid var(--sd-line2); background: transparent !important; border-radius: 0; }
+.st-key-paso button, .st-key-lateral button { border: 0 !important; border-bottom: 3px solid transparent !important; border-radius: 0 !important; background: transparent !important;
     box-shadow: none !important; padding: 8px 2px; margin-bottom: -1px; min-height: 0; }
-.st-key-paso button * { color: var(--sd-muted) !important; font-size: 15px !important; }
-.st-key-paso button[aria-checked="true"] { border-bottom-color: var(--sd-accent) !important; }
-.st-key-paso button[aria-checked="true"] * { color: var(--sd-ink) !important; font-weight: 700; }
+.st-key-paso button *, .st-key-lateral button * { color: var(--sd-muted) !important; font-size: 15px !important; }
+.st-key-paso button[aria-checked="true"], .st-key-lateral button[aria-checked="true"] { border-bottom-color: var(--sd-accent) !important; }
+.st-key-paso button[aria-checked="true"] *, .st-key-lateral button[aria-checked="true"] * { color: var(--sd-ink) !important; font-weight: 700; }
 
 /* lista de requisitos */
 .sd-reqs { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 26px; font-size: 14px; }
@@ -1189,28 +1192,59 @@ def _resumen_corrida(texto, en_curso=False):
     return hechas, (f"Con errores ({errores})" if errores else "Finalizada"), ("mal" if errores else "ok")
 
 
+HISTORIAL_VISIBLES = 8        # las últimas que se ven en la barra lateral; el resto va en «Ver las 15» (la barra pegada no puede ser más alta que la ventana)
+
+
+@st.cache_data(show_spinner=False)
+def _resumen_historial(ruta, mtime):
+    """(combinaciones, resultado, clase) de una corrida terminada. Se cachea por archivo y fecha de modificación: no se releen los logs en cada refresco."""
+    texto = Path(ruta).read_text(encoding="utf-8", errors="replace")
+    combinaciones, res, clase = _resumen_corrida(texto, False)
+    if res.startswith("Con errores"):             # «a revisar» = combinaciones con un estado distinto de OK en esa corrida (si el log no las detalla, los errores del cierre)
+        r = resultado.resumir_corrida(texto.splitlines())
+        n = len([x for x in r["combinaciones"] if x["clave"] not in ("OK", "LEIDA", None)]) or int(re.search(r"\((\d+)\)", res).group(1))
+        res, clase = f"Con {n} a revisar", "warn"
+    return combinaciones, res, clase
+
+
+def _fila_historial(c, numero, estado, en_curso):
+    actual = en_curso is not None and Path(en_curso).name == c["carpeta"].name
+    if actual:
+        combinaciones, res, clase = _resumen_corrida(c["log"].read_text(encoding="utf-8", errors="replace"), True)
+    else:
+        combinaciones, res, clase = _resumen_historial(str(c["log"]), c["log"].stat().st_mtime)
+    apl = c["modo"] == "aplicar"
+    izq, der = st.columns([5, 1.3], vertical_alignment="center", gap="small")
+    izq.markdown(f'<div class="sd-hist"><b>#{numero}</b> · {c["inicio"]:%d/%m %H:%M}<div>{_insignia("APLICAR" if apl else "REVISAR", "apl" if apl else "rev")} '
+                 f'{_insignia(res, clase)} <span class="sd-nota">{_h(combinaciones)}</span></div></div>', unsafe_allow_html=True)
+    der.download_button("Descargar log", data=c["log"].read_text(encoding="utf-8", errors="replace"), file_name=f"{c['carpeta'].name}.log", mime="text/plain",
+                        icon=":material/download:", key=f"hist_{c['carpeta'].name}", use_container_width=True, help="Descargar el log de esta corrida")
+
+
 def render_historial(estado):
+    """Pestaña «Historial» de la barra lateral: últimas corridas, compactas, con la descarga de su log."""
     en_curso = _carpeta_de_salida(estado) if estado["running"] else None
-    with st.expander("🕘 Historial de corridas · últimas 15"):
-        corridas = _historial_corridas()
-        if not corridas:
-            st.caption("Todavía no hay corridas guardadas en la carpeta salida.")
-        else:
-            cab = st.columns([2.4, 1.2, 1.4, 1.6, 1.6])
-            for col, t in zip(cab, ("Fecha", "Modo", "Combinaciones", "Resultado", "")):
-                col.markdown(f'<span class="sd-etiqueta">{t}</span>', unsafe_allow_html=True)
-        for c in corridas:
-            texto = c["log"].read_text(encoding="utf-8", errors="replace")
-            actual = en_curso is not None and Path(en_curso).name == c["carpeta"].name
-            combinaciones, resultado, clase = _resumen_corrida(texto, actual)
-            col_fecha, col_modo, col_comb, col_res, col_desc = st.columns([2.4, 1.2, 1.4, 1.6, 1.6], vertical_alignment="center")
-            col_fecha.write(c["inicio"].strftime("%d/%m/%Y %H:%M:%S"))
-            col_modo.markdown(_insignia("APLICAR" if c["modo"] == "aplicar" else "REVISAR", "apl" if c["modo"] == "aplicar" else "rev"),
-                              unsafe_allow_html=True)
-            col_comb.write(combinaciones)
-            col_res.markdown(_insignia(resultado, clase), unsafe_allow_html=True)
-            col_desc.download_button("Descargar", data=texto, file_name=f"{c['carpeta'].name}.log", mime="text/plain",
-                                     icon=":material/download:", key=f"hist_{c['carpeta'].name}", use_container_width=True)
+    todas = _historial_corridas(limite=10 ** 6)              # el número (#) cuenta todas las carpetas: es estable mientras no se borren
+    corridas = todas[:HISTORIAL_MAX]
+    if not corridas:
+        st.caption("Todavía no hay corridas guardadas en la carpeta salida.")
+        return
+    for i, c in enumerate(corridas[:HISTORIAL_VISIBLES]):
+        _fila_historial(c, len(todas) - i, estado, en_curso)
+    if len(corridas) > HISTORIAL_VISIBLES:
+        with st.expander(f"Ver las {len(corridas)}"):
+            for i, c in enumerate(corridas[HISTORIAL_VISIBLES:], start=HISTORIAL_VISIBLES):
+                _fila_historial(c, len(todas) - i, estado, en_curso)
+
+
+def render_lateral(estado, sheet_url):
+    """Barra lateral derecha: pestañas «Cola» e «Historial» (es un fragment: cambiar de pestaña no toca la corrida)."""
+    st.segmented_control("Barra lateral", ["cola", "historial"], key="lateral", default="cola", required=True, label_visibility="collapsed",
+                         width="stretch", format_func=lambda k: "Cola" if k == "cola" else "Historial")
+    if st.session_state.get("lateral") == "historial":
+        render_historial(estado)
+    else:
+        render_cola(estado, sheet_url)
 
 
 # ── Página ──────────────────────────────────────────────────────────────────
@@ -1240,7 +1274,7 @@ def main():
         col_main, col_lateral = st.columns([3.2, 1], gap="medium")
         with col_lateral:
             with st.container(key="barra_lateral", border=True):
-                st.fragment(run_every=2 if estado["running"] else None)(render_cola)(estado, sheet_url)
+                st.fragment(run_every=2 if estado["running"] else None)(render_lateral)(estado, sheet_url)
         with col_main:
             with st.container(key="barra_corrida"):
                 st.fragment(run_every=1 if estado["running"] else None)(render_barra)(estado)
@@ -1254,7 +1288,6 @@ def main():
                 render_comparar(estado)
 
             st.fragment(run_every=1 if estado["running"] else None)(render_consola)(estado)
-    render_historial(estado)
 
 
 main()
