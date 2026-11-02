@@ -303,13 +303,23 @@ div:has(> .st-key-barra_corrida):not(:has(.sd-run)) { display: none; }
 .sd-barra.apl i { background: var(--sd-danger-solid); }
 .st-key-abortar_barra button { border-color: var(--sd-danger-solid); color: var(--sd-danger); font-weight: 600; }
 
-/* cola de trabajo */
-.sd-cola { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-.sd-cola > div { padding: 4px 12px; border-left: 3px solid var(--sd-line); display: flex; flex-direction: column; }
-.sd-cola .n { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
-.sd-cola .l { font-size: 12px; color: var(--sd-muted); }
-.sd-cola .pend { border-left-color: var(--sd-accent); } .sd-cola .pend .n { color: var(--sd-accent); }
-.sd-cola .mal { border-left-color: var(--sd-danger-solid); } .sd-cola .mal .n { color: var(--sd-danger); }
+/* cola de trabajo (barra lateral derecha) */
+.sd-cola { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 6px; }
+.sd-cola > div { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--sd-line); background: var(--sd-surface2); display: flex; flex-direction: column; }
+.sd-cola .n { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; color: var(--sd-ink); }
+.sd-cola .l { font-size: 12px; font-weight: 600; color: var(--sd-muted); }
+.sd-cola .pend { background: var(--sd-warn-bg); border-color: var(--sd-warn-line); }
+.sd-cola .proc { background: var(--sd-accent-bg); border-color: var(--sd-info-line); }
+.sd-cola .ok { background: var(--sd-ok-bg); border-color: var(--sd-ok-line); }
+.sd-cola .mal { background: var(--sd-danger-bg); border-color: var(--sd-danger-line); } .sd-cola .mal .n { color: var(--sd-danger); }
+.sd-prog { margin: 10px 0 8px; } .sd-prog-t { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+/* columna derecha pegada al hacer scroll; en pantallas angostas pasa arriba del contenido */
+div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 12px; align-self: flex-start; max-height: calc(100vh - 24px); overflow-y: auto; }
+@media (max-width: 1000px) {
+    .st-key-fila_principal div[data-testid="stHorizontalBlock"]:has(> div[data-testid="stColumn"] .st-key-barra_lateral) { flex-direction: column-reverse !important; flex-wrap: nowrap !important; }
+    .st-key-fila_principal div[data-testid="stHorizontalBlock"]:has(> div[data-testid="stColumn"] .st-key-barra_lateral) > div[data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; flex: 1 1 auto !important; }
+    div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: static; max-height: none; overflow: visible; }
+}
 .sd-cola-titulo { font-size: 15px !important; font-weight: 600; margin: 0 !important; }
 .sd-nota { font-size: 12px !important; color: var(--sd-muted); margin: 0 !important; }
 
@@ -644,36 +654,56 @@ def _progreso(lineas):
 
 
 def render_cola(estado, sheet_url):
-    # Mientras corre, este panel se refresca solo (ver main): se vuelve a leer la hoja cada ~10 s.
+    """Barra lateral derecha, pestaña «Cola»: contadores del Sheet, progreso de la corrida, Refrescar/Abortar y glosario.
+    Mientras corre, se refresca sola (ver main): se vuelve a leer la hoja cada ~10 s."""
     if estado["running"] and sheet_url and time.time() - estado.get("ultimo_conteo", 0) >= 8:
         _refrescar_conteo(estado, sheet_url)
         estado["ultimo_conteo"] = time.time()
-    with st.container(border=True, key="cola_trabajo"):
-        c1, c2, c3, c4 = st.columns([2.2, 6.2, 1.3, 1.3], vertical_alignment="center")
-        plan = st.session_state.get("_plan_reporte")
-        por_cargar = len(plan["a_cargar"]) if plan else 0
-        nota = ("Se actualiza sola cada 10 s" if estado["running"] else "Leída del Google Sheet")
-        if por_cargar:
-            nota = f"+{por_cargar} al confirmar la carga del reporte"      # el análisis no escribe en el Sheet: sumá cuando se confirma
-        c1.markdown(f'<p class="sd-cola-titulo">Cola de trabajo</p><p class="sd-nota">{nota}</p>', unsafe_allow_html=True)
-        if estado["conteo_error"]:
-            c2.error(f"No pude leer el Sheet: {estado['conteo_error']}")
-        elif estado["conteo"]:
-            c = estado["conteo"]
-            items = [("pend", "Pendiente", c["Pendiente"]), ("", "OK", c["OK"]), ("mal" if c["Error"] > 0 else "", "Error", c["Error"]),
-                     ("", "Duplicado", c["Duplicado"]), ("", "Otro", c["Otro"])]
-            c2.markdown('<div class="sd-cola">' + "".join(f'<div class="{k}" title="{_h(glosario.COLA[t])}"><span class="n">{n}</span><span class="l">{t}</span></div>'
-                                                          for k, t, n in items) + "</div>", unsafe_allow_html=True)
+    plan = st.session_state.get("_plan_reporte")
+    por_cargar = len(plan["a_cargar"]) if plan else 0
+    nota = ("Se actualiza sola cada 10 s" if estado["running"] else "Leída del Google Sheet")
+    if por_cargar:
+        nota = f"+{por_cargar} al confirmar la carga del reporte"      # el análisis no escribe en el Sheet: sumá cuando se confirma
+    st.markdown(f'<p class="sd-cola-titulo">Cola de trabajo</p><p class="sd-nota">{nota}</p>', unsafe_allow_html=True)
+    hechas, total = _progreso(estado["log_lines"])
+    procesadas = max(hechas - 1, 0) if estado["running"] else hechas
+    if estado["conteo_error"]:
+        st.error(f"No pude leer el Sheet: {estado['conteo_error']}")
+    elif estado["conteo"]:
+        c = estado["conteo"]
+        en_proceso = 1 if (estado["running"] and hechas >= 1 and c["Pendiente"] >= 1) else 0     # la combinación en curso sigue PENDIENTE en el Sheet: se cuenta acá y no en Pendiente
+        items = [("pend", "Pendiente", c["Pendiente"] - en_proceso, glosario.COLA["Pendiente"]),
+                 ("proc", "En proceso", en_proceso, "La combinación que se está procesando ahora (en el Sheet sigue PENDIENTE hasta que termina)."),
+                 ("ok", "OK", c["OK"], glosario.COLA["OK"]),
+                 ("mal" if c["Error"] > 0 else "", "Error", c["Error"], glosario.COLA["Error"])]
+        st.markdown('<div class="sd-cola">' + "".join(f'<div class="{k}" title="{_h(t_)}"><span class="n">{n}</span><span class="l">{t}</span></div>'
+                                                      for k, t, n, t_ in items) + "</div>", unsafe_allow_html=True)
+        st.markdown(f'<div class="sd-nota" style="margin-top:6px !important">Duplicado: {c["Duplicado"]} · Otro: {c["Otro"]}</div>', unsafe_allow_html=True)
+    else:
+        st.caption("Tocá Refrescar para ver cuántas filas hay Pendientes, OK o con Error.")
+    # Progreso de la corrida
+    if estado["running"] or estado["mensaje"]:
+        pct = int(min(procesadas, total) / total * 100) if total else 0
+        if estado["running"]:
+            restante = E.estimar_restante(estado.get("t_primera"), procesadas, total, time.time(), minimo=1)
+            detalle = (f"Tiempo restante estimado: ≈ {reporte_entrada.texto_duracion(restante)}" if restante is not None else "Tiempo restante estimado: calculando…")
         else:
-            c2.caption("Tocá Refrescar para ver cuántas filas hay Pendientes, OK o con Error.")
-        if c3.button("🔄 Refrescar", disabled=estado["running"] or not sheet_url, use_container_width=True, key="refrescar"):
-            _refrescar_conteo(estado, sheet_url)
-            st.rerun()
-        c4.button("⏹ Abortar", key="abortar_cola", disabled=not estado["running"] or estado["abort_pedido"], use_container_width=True,
-                  help="Corta al terminar la combinación en curso y hace logout de Tourplan.", on_click=_pedir_abortar, args=(estado,))
-        with st.popover("¿Qué significa cada estado?", type="tertiary"):
-            st.markdown("**Cola de trabajo**\n\n" + glosario.markdown_cola())
-            st.markdown("**Estados en la columna ESTADO del Sheet**\n\n" + glosario.markdown_estados())
+            dur = resultado.resumir_corrida(estado["log_lines"])["duracion"]
+            detalle = f"Duró {dur}" if dur else "Corrida terminada"
+        st.markdown(f'<div class="sd-prog"><div class="sd-prog-t"><span>{min(procesadas, total) if total else 0}/{total} procesadas</span><b>{pct} %</b></div>'
+                    f'<div class="sd-barra {"apl" if estado["modo"] == "aplicar" else ""}"><i style="width:{pct}%"></i></div>'
+                    f'<div class="sd-nota">{detalle}</div></div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="sd-nota" style="margin:8px 0 !important">Sin corrida en curso</div>', unsafe_allow_html=True)
+    b1, b2 = st.columns(2)
+    if b1.button("🔄 Refrescar", disabled=estado["running"] or not sheet_url, use_container_width=True, key="refrescar"):
+        _refrescar_conteo(estado, sheet_url)
+        st.rerun()
+    b2.button("⏹ Abortar", key="abortar_cola", disabled=not estado["running"] or estado["abort_pedido"], use_container_width=True,
+              help="Corta al terminar la combinación en curso y hace logout de Tourplan.", on_click=_pedir_abortar, args=(estado,))
+    with st.expander("¿Qué significa cada estado?"):
+        st.markdown("**Cola de trabajo**\n\n" + glosario.markdown_cola())
+        st.markdown("**Estados en la columna ESTADO del Sheet**\n\n" + glosario.markdown_estados())
 
 
 # ── Paso 1 · Ejecutar ───────────────────────────────────────────────────────
@@ -1129,16 +1159,11 @@ def render_consola(estado):
         texto_estado, clase = ("Abortada", "warn") if estado["returncode"] == E.EXIT_ABORTADO else ("Finalizada", "ok")
     else:
         texto_estado, clase = "En espera", "idle"
-    hechas, total = _progreso(estado["log_lines"])
     with st.container(border=True, key="consola"):
         c1, c2 = st.columns([5, 1.4], vertical_alignment="center")
         c1.markdown(f'<span class="sd-cola-titulo">Consola</span> &nbsp; {_insignia(texto_estado, clase)}', unsafe_allow_html=True)
         c2.download_button("Descargar log", data="".join(estado["log_lines"]), file_name="consola.txt", mime="text/plain",
                            icon=":material/download:", key="descargar_consola", use_container_width=True)
-        pct = int(min(max(hechas - 1, 0) if estado["running"] else hechas, total) / total * 100) if total else 0
-        st.markdown(f'<div class="sd-run" style="margin-bottom:8px"><div class="sd-barra {"apl" if estado["modo"] == "aplicar" else ""}">'
-                    f'<i style="width:{pct}%"></i></div><span class="sd-nota">'
-                    + (f"Combinación {min(hechas, total)} de {total}" if total else "Sin corrida") + "</span></div>", unsafe_allow_html=True)
         st.markdown(html_consola(estado["log_lines"]), unsafe_allow_html=True)
         carpeta = _carpeta_de_salida(estado)
         if carpeta:
@@ -1211,20 +1236,24 @@ def main():
         st.session_state["_conteo_inicial"] = True
         _refrescar_conteo(estado, sheet_url)
 
-    with st.container(key="barra_corrida"):
-        st.fragment(run_every=1 if estado["running"] else None)(render_barra)(estado)
+    with st.container(key="fila_principal"):
+        col_main, col_lateral = st.columns([3.2, 1], gap="medium")
+        with col_lateral:
+            with st.container(key="barra_lateral", border=True):
+                st.fragment(run_every=2 if estado["running"] else None)(render_cola)(estado, sheet_url)
+        with col_main:
+            with st.container(key="barra_corrida"):
+                st.fragment(run_every=1 if estado["running"] else None)(render_barra)(estado)
+            render_resultado(estado)
 
-    st.fragment(run_every=10 if estado["running"] else None)(render_cola)(estado, sheet_url)
-    render_resultado(estado)
+            oculto = "cmp" if st.session_state["paso"] == "run" else "run"
+            st.markdown(f"<style>.st-key-panel_{oculto} {{ display: none; }}</style>", unsafe_allow_html=True)
+            with st.container(key="panel_run"):
+                render_ejecutar(estado)
+            with st.container(key="panel_cmp"):
+                render_comparar(estado)
 
-    oculto = "cmp" if st.session_state["paso"] == "run" else "run"
-    st.markdown(f"<style>.st-key-panel_{oculto} {{ display: none; }}</style>", unsafe_allow_html=True)
-    with st.container(key="panel_run"):
-        render_ejecutar(estado)
-    with st.container(key="panel_cmp"):
-        render_comparar(estado)
-
-    st.fragment(run_every=1 if estado["running"] else None)(render_consola)(estado)
+            st.fragment(run_every=1 if estado["running"] else None)(render_consola)(estado)
     render_historial(estado)
 
 

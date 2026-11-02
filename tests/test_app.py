@@ -85,8 +85,8 @@ class App(unittest.TestCase):
         tipos = [(e.type, getattr(e, "label", None) or getattr(e, "value", None)) for e in self._aplanar(at.main)]
         pos = lambda tipo, texto: next(i for i, (t, v) in enumerate(tipos) if t == tipo and texto in str(v))
         self.assertLess(pos("markdown", "Actualización de costos"), pos("button_group", "Vista"))                 # las pestañas, bajo el encabezado
-        self.assertLess(pos("button_group", "Vista"), pos("markdown", "Cola de trabajo"))
-        self.assertLess(pos("markdown", "Cola de trabajo"), pos("button_group", "Combinaciones a procesar"))     # los parámetros, bajo la cola
+        self.assertLess(pos("button_group", "Vista"), pos("button_group", "Combinaciones a procesar"))
+        self.assertLess(pos("button_group", "Combinaciones a procesar"), pos("markdown", "Cola de trabajo"))     # la cola va en la barra lateral derecha
         self.assertLess(pos("button_group", "Modo"), pos("markdown", 'class="sd-consola"'))                       # y la consola, bajo los parámetros
         self.assertLess(pos("markdown", 'class="sd-consola"'), pos("expander", "Historial de corridas"))
 
@@ -358,7 +358,7 @@ class App(unittest.TestCase):
         self.configurar()
         at = self.app()
         self.assertIn("btn_guia", [b.key for b in at.button])
-        self.assertIn("¿Qué significa cada estado?", [p.proto.popover.label for p in at.get("popover")])           # en la cola
+        self.assertIn("¿Qué significa cada estado?", [e.label for e in at.expander])                                # en la cola (barra lateral)
         self.assertIn("¿Qué significa cada resultado?", [p.proto.popover.label for p in at.get("popover")])        # en el comparador
         texto = self.textos(at)
         self.assertIn("ERROR_COLGADAS", texto)
