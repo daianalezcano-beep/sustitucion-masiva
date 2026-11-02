@@ -1363,7 +1363,15 @@ def procesar_grupo(driver, ctx, loc, sup, stype, cod, psup, pcod, status, filas_
 
         # 5) Verificación final contra la foto inicial del grupo (las columnas incluyen la celda PU/DO completa)
         r2 = consultar(driver, ctx, loc, stype, sup, cod, desde, hasta, service_status=filtro_ss)
-        faltan, sobran = L.diferencia_multiconjunto(completas, r2["filas"])
+        # El nombre de la reserva (booking_name) lo puede editar cualquiera en Tourplan mientras corre el script y no tiene
+        # relación con el costo ni con la venta: no cuenta como diferencia (no detiene la corrida), solo se avisa.
+        campos_final = tuple(c for c in L.CAMPOS_COMPARACION if c != "booking_name")
+        faltan, sobran = L.diferencia_multiconjunto(completas, r2["filas"], campos_final)
+        if not faltan and not sobran:
+            n_a, n_b = L.diferencia_multiconjunto(completas, r2["filas"])
+            if n_a or n_b:
+                obs.append(f"[{status}] AVISO: cambió el nombre de la reserva durante la corrida (no detiene): "
+                           f"antes {[f[5] for f in n_a[:2]]} | ahora {[f[5] for f in n_b[:2]]}")
         if r2["found"] == total_a and not faltan and not sobran:
             # Todas las reservas de la foto están de vuelta en A y P estaba vacío antes de la ida: P quedó vacío.
             print("    P no se vuelve a consultar: el original quedó idéntico a la foto, así que P está vacío")
