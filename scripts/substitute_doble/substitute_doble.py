@@ -771,6 +771,72 @@ def probar_seleccion_total(driver, found):
     return usado[0]
 
 
+JS_DESTILDAR_FILAS = r"""
+    var pendientes = new Set(arguments[0]), hechas = [];
+    var tb = document.querySelector('#resultsTab tp-grid table');
+    if (!tb) return hechas;
+    Array.from(tb.querySelectorAll('tbody > tr')).filter(function(r){ return r.querySelector(':scope > td.tpcol-optioncode'); }).forEach(function(tr){
+        var t = function(c){ var td = tr.querySelector(':scope > td.tpcol-' + c); return td ? (td.innerText || '').trim().toUpperCase() : ''; };
+        var k = [t('bookingreference'), t('servicedate'), t('locationcode'), t('servicecode'), t('suppliercode'), t('optioncode')].join('|');
+        if (!pendientes.has(k)) return;
+        var td = tr.querySelector(':scope > td.tpcol-checkbox');
+        if (!td) return;
+        var inp = td.querySelector('input');
+        if (inp && !inp.checked) return;                       // ya está destildada: no se vuelve a clickear (se desmarcaría de nuevo)
+        (td.querySelector('label') || td.querySelector('i') || inp || td).click();
+        hechas.push(k);
+    });
+    return hechas;
+"""
+
+
+def limpiar_seleccion(driver):
+    """Deja Selected en 0 (si quedó una selección parcial, el click en el encabezado puede seleccionar todo: se repite hasta 3 veces)."""
+    for _ in range(3):
+        if leer_contadores(driver)[1] in (0, None):
+            return
+        candidatos = driver.execute_script(JS_ENCABEZADO)
+        if not candidatos:
+            break
+        jc(driver, candidatos[0])
+        esperar(lambda: leer_contadores(driver)[1] in (0, None), 2.5)
+    if leer_contadores(driver)[1] not in (0, None):
+        raise ErrorFila("ERROR: selección", f"No pude dejar la selección en cero (Selected={leer_contadores(driver)[1]})")
+
+
+def seleccionar_con_exclusiones(driver, total, excluidas, esperado):
+    """Selecciona TODO y destilda, fila por fila, las excluidas (costo manualizado). Verifica Selected == `esperado` (total menos las excluidas); si no
+    coincide deja la selección en cero y rechaza, ANTES de abrir el modal (no se movió nada)."""
+    seleccionar_todo(driver, total)
+    claves = [X.clave_para_pantalla(e["fila"]) for e in excluidas]
+    try:
+        cont = driver.execute_script(JS_CONTENEDOR_SCROLL)
+        if cont is not None:
+            driver.execute_script("arguments[0].scrollTop = 0;", cont)
+            time.sleep(0.3 * tp.VELOCIDAD)
+        driver.execute_script(JS_DESTILDAR_FILAS, claves)
+        esperar(lambda: leer_contadores(driver)[1] == esperado, 2.5)
+        if cont is not None:
+            estancado, iteraciones = 0, 0
+            while leer_contadores(driver)[1] != esperado and iteraciones < total * 2 + 50:
+                iteraciones += 1
+                antes = driver.execute_script("return arguments[0].scrollTop;", cont)
+                driver.execute_script("arguments[0].scrollTop += 150;", cont)
+                time.sleep(0.25 * tp.VELOCIDAD)
+                driver.execute_script(JS_DESTILDAR_FILAS, claves)
+                estancado = estancado + 1 if driver.execute_script("return arguments[0].scrollTop;", cont) == antes else 0
+                if estancado >= 2:
+                    break
+        sel = leer_contadores(driver)[1]
+    except Exception:
+        limpiar_seleccion(driver)
+        raise
+    if sel != esperado:
+        limpiar_seleccion(driver)
+        raise ErrorFila("ERROR: selección", f"Tras destildar las {len(excluidas)} fila(s) excluidas quedó Selected={sel} y se esperaban {esperado} "
+                        f"(Found={total}); no se movió nada")
+
+
 # ── Fila del input ───────────────────────────────────────────────────────────
 
 def campos_fila(row):
@@ -901,6 +967,17 @@ def procesar_fila_lectura(driver, ctx, row):
 
     r = consultar(driver, ctx, loc, stype, sup, cod, ctx["desde"], ctx["hasta"], marca=marca)
     found, filas, modo_lectura = r["found"], r["filas"], r["modo"]
+    a_procesar, excl = X.separar_resultados(filas, ctx.get("exclusiones"), loc, sup, stype, cod)
+    sel_excl = ""
+    if excl:
+        registrar_exclusiones(ctx, loc, sup, stype, cod, excl)
+        print(f"    🚫 {len(excl)} de {found} reserva(s) con costo manualizado: se excluirían ({X.texto_de_exclusion([l for e in excl for l in e['lineas']])})")
+        # Prueba de la exclusión fila por fila (no toca OK): selecciona todo, destilda las excluidas, verifica Selected y deja todo sin seleccionar.
+        seleccionar_con_exclusiones(driver, found, excl, found - len(excl))
+        limpiar_seleccion(driver)
+        sel_excl = f"exclusion_por_linea=OK({len(excl)} de {found}); "
+        print(f"    Exclusión por línea verificada: Selected={found - len(excl)} tras destildar {len(excl)} fila(s)")
+        marca("exclusion")
 
     if ctx["panel_pendiente"] and found > 0:
         ctx["panel_pendiente"] = False
@@ -944,8 +1021,11 @@ def procesar_fila_lectura(driver, ctx, row):
     obs = (f"[LECTURA {ahora()}] Found={found}; estados={estados}; "
            f"claves repetidas={dup['claves']} ({dup['filas']} filas; {dup['difieren_estado']} con estado distinto, "
            f"{dup['difieren_pudo']} con PU/DO distinto); provisorio={texto_prov}; "
-           f"{sel_total}{filtro_estado}lectura={modo_lectura}; t={marcas}")
-    return obs, armar_detalle(ctx, loc, sup, stype, cod, filas, "LECTURA", "LEIDA"), found, marcas
+           f"{sel_total}{sel_excl}{filtro_estado}lectura={modo_lectura}; t={marcas}")
+    if excl:
+        obs += f" | EXCLUIDAS {len(excl)} por costo manualizado (revisar a mano): {resumen_exclusiones(excl)}"
+    detalle = armar_detalle(ctx, loc, sup, stype, cod, a_procesar, "LECTURA", "LEIDA")
+    return obs, detalle, found, marcas
 
 
 # ── Modo aplicar: modal Replacement Service y Summary ────────────────────────
@@ -1226,13 +1306,19 @@ def foto_del_grupo(driver, ctx, loc, stype, sup, cod, desde, hasta, status, fila
 
 
 def procesar_grupo(driver, ctx, loc, sup, stype, cod, psup, pcod, status, filas_g, pudos, pudo0, reponer, filtro_ss,
-                   desde, hasta, plan):
+                   desde, hasta, plan, excluidas=(), completas=None):
     """Ida y vuelta de UN grupo (todas las reservas de A con el mismo estado de servicio; con un solo estado, todas).
     `plan`: texto de la confirmación (None = no pedir). Devuelve un dict con lo ocurrido; después del OK de la ida
-    cualquier fallo es ERROR_COLGADAS."""
+    cualquier fallo es ERROR_COLGADAS. `filas_g`: las reservas que se mueven. `excluidas`: filas del mismo grupo con costo manualizado, que quedan donde
+    están (se destildan en Results); `completas`: el grupo entero (a mover + excluidas), contra el que se verifica el original al final."""
     found0 = len(filas_g)
-    # 2) IDA: A -> P (selecciona todo, modal, confirmación, detalle ANTES del OK, OK, summary)
-    seleccionar_todo(driver, found0)
+    completas = list(completas) if completas is not None else list(filas_g)
+    total_a = len(completas)
+    # 2) IDA: A -> P (selecciona todo menos las excluidas, modal, confirmación, detalle ANTES del OK, OK, summary)
+    if excluidas:
+        seleccionar_con_exclusiones(driver, total_a, excluidas, found0)
+    else:
+        seleccionar_todo(driver, found0)
     abrir_modal_reemplazo(driver, found0)
     # El pickup/drop-off también se carga en la ida: así los selectores de esos campos se prueban ANTES de
     # mover nada (si fallan, no hay nada que recuperar) y el provisorio conserva los datos como respaldo.
@@ -1273,8 +1359,8 @@ def procesar_grupo(driver, ctx, loc, sup, stype, cod, psup, pcod, status, filas_
 
         # 5) Verificación final contra la foto inicial del grupo (las columnas incluyen la celda PU/DO completa)
         r2 = consultar(driver, ctx, loc, stype, sup, cod, desde, hasta, service_status=filtro_ss)
-        faltan, sobran = L.diferencia_multiconjunto(filas_g, r2["filas"])
-        if r2["found"] == found0 and not faltan and not sobran:
+        faltan, sobran = L.diferencia_multiconjunto(completas, r2["filas"])
+        if r2["found"] == total_a and not faltan and not sobran:
             # Todas las reservas de la foto están de vuelta en A y P estaba vacío antes de la ida: P quedó vacío.
             print("    P no se vuelve a consultar: el original quedó idéntico a la foto, así que P está vacío")
         else:
@@ -1282,8 +1368,8 @@ def procesar_grupo(driver, ctx, loc, sup, stype, cod, psup, pcod, status, filas_
             if r3["found"] != 0:     # sustitutos sin asignar: es el caso que detiene toda la corrida
                 raise ErrorFila("ERROR: provisorio", f"El provisorio quedó con {r3['found']} reserva(s) tras la vuelta")
         diferencias = []
-        if r2["found"] != found0:
-            diferencias.append(f"[{status}] el original tiene Found={r2['found']} y antes {found0}")
+        if r2["found"] != total_a:
+            diferencias.append(f"[{status}] el original tiene Found={r2['found']} y antes {total_a}")
         if faltan or sobran:
             diferencias.append(f"[{status}] columnas distintas: antes-y-no-ahora {faltan[:2]} | ahora-y-no-antes {sobran[:2]}")
     except ErrorFila as e:
@@ -1330,7 +1416,16 @@ def procesar_fila_aplicar(driver, ctx, row):
     found0, filas0 = r0["found"], r0["filas"]
     if found0 == 0:
         return "OK", f"[APLICAR {ahora()}] Found=0: no hay reservas para sustituir en el rango", 0
-    estados = sorted({f["status"] for f in filas0})
+    # Costo manualizado: se separan las filas a excluir (se informan al final); el resto se procesa.
+    filas0_todas = filas0
+    filas0, excl0 = X.separar_resultados(filas0_todas, ctx.get("exclusiones"), loc, sup, stype, cod)
+    if excl0:
+        registrar_exclusiones(ctx, loc, sup, stype, cod, excl0)
+        print(f"    🚫 {len(excl0)} de {found0} reserva(s) con costo manualizado: no se procesan ({X.texto_de_exclusion([l for e in excl0 for l in e['lineas']])})")
+        if not filas0:
+            return ("EXCLUIDA", f"[APLICAR {ahora()}] Las {found0} reserva(s) de esta combinación tienen costo manualizado: no se procesó nada. "
+                    f"Revisar a mano: {resumen_exclusiones(excl0)}", found0)
+    estados = sorted({f["status"] for f in filas0_todas})
     desconocidos = [e for e in estados if e not in SERVICE_STATUS]
     if desconocidos:
         raise ErrorFila("ERROR: status desconocido", f"Estados de servicio sin entrada en el glosario SERVICE_STATUS: "
@@ -1338,7 +1433,13 @@ def procesar_fila_aplicar(driver, ctx, row):
     analiza_pudo = stype in PUDO_SERVICE_TYPES
     grupos = []
     for st in estados:
+        completas_g = [f for f in filas0_todas if f["status"] == st]
+        excl_g = [e for e in excl0 if e["fila"]["status"] == st]
         filas_g = [f for f in filas0 if f["status"] == st]
+        if not filas_g:             # todo el estado tiene costo manualizado: no hay nada que mover
+            grupos.append({"status": st, "filas": [], "completas": completas_g, "excluidas": excl_g, "pudos": [], "pudo0": None, "reponer": False,
+                           "saltear": True})
+            continue
         pudos = [pudo_de_fila(f) for f in filas_g]
         if analiza_pudo:
             if not L.paneles_homogeneos(pudos):
@@ -1355,8 +1456,9 @@ def procesar_fila_aplicar(driver, ctx, row):
         if any(p["pickup_fecha"] and p["pickup_fecha"] != f["date"] for p, f in zip(pudos, filas_g)):
             print(f"    ⚠ [{st}] El pickup/drop-off original no cae en la fecha del servicio: el modal no permite fecha, "
                   "la verificación final lo va a marcar para revisión manual.")
-        grupos.append({"status": st, "filas": filas_g, "pudos": pudos, "pudo0": pudo0, "reponer": reponer})
-    cuenta = ", ".join(f"{g['status']} {len(g['filas'])}" for g in grupos)
+        grupos.append({"status": st, "filas": filas_g, "completas": completas_g, "excluidas": excl_g, "pudos": pudos, "pudo0": pudo0,
+                       "reponer": reponer})
+    cuenta = ", ".join(f"{g['status']} {len(g['completas'])}" for g in grupos)
     print(f"    Foto inicial: {found0} reserva(s) en {len(grupos)} estado(s) de servicio ({cuenta}); "
           f"pickup/drop-off: {'analizado' if analiza_pudo else 'no corresponde en ' + stype}"
           + (f"; a reponer en: {[g['status'] for g in grupos if g['reponer']]}" if analiza_pudo else ""))
@@ -1366,13 +1468,18 @@ def procesar_fila_aplicar(driver, ctx, row):
             f"y se verifica contra la foto inicial. Se hace click en el OK de la ida del primer estado y el resto sigue solo.")
     ctx["provisorios_ok"].discard((loc, stype))      # este provisorio se va a usar: antes de la próxima combinación que lo use se revisa de nuevo
     hechos, resultados, no_sustituidos, por_estado = [], [], [], []
+    primero = next((i for i, g in enumerate(grupos) if not g.get("saltear")), 0)       # la confirmación se pide en el primer grupo que se mueve
     for i, g in enumerate(grupos):
+        if g.get("saltear"):
+            por_estado.append(f"{g['status']} EXCLUIDO ({len(g['completas'])}: costo manualizado)")
+            continue
         try:
             filtro_ss = None
             if len(grupos) > 1:
-                _, filtro_ss = foto_del_grupo(driver, ctx, loc, stype, sup, cod, desde, hasta, g["status"], g["filas"])
+                _, filtro_ss = foto_del_grupo(driver, ctx, loc, stype, sup, cod, desde, hasta, g["status"], g["completas"])
             res = procesar_grupo(driver, ctx, loc, sup, stype, cod, psup, pcod, g["status"], g["filas"], g["pudos"], g["pudo0"],
-                                 g["reponer"], filtro_ss, desde, hasta, plan if i == 0 else None)
+                                 g["reponer"], filtro_ss, desde, hasta, plan if i == primero else None,
+                                 excluidas=g["excluidas"], completas=g["completas"])
         except ErrorFila as e:
             if e.estado == "ERROR_COLGADAS" or not hechos:
                 raise
@@ -1395,6 +1502,8 @@ def procesar_fila_aplicar(driver, ctx, row):
     sin_mover = no_movidas + sum(len(g["filas"]) for g in grupos if g["status"] not in hechos)
     resumen = (f"[APLICAR {ahora()}] {found0} reserva(s) en A ({cuenta}); sustituidas {movidas}; no sustituidas {sin_mover}; "
                f"POR ESTADO: {', '.join(por_estado)}; {' | '.join(obs)}")
+    if excl0:
+        resumen += f" | EXCLUIDAS {len(excl0)} por costo manualizado (revisar a mano): {resumen_exclusiones(excl0)}"
     if no_sustituidos:
         resumen += " | NO SUSTITUIDAS por Tourplan (siguen en el original): " + "; ".join(no_sustituidos)
     if diferencias:
@@ -1473,13 +1582,36 @@ def cargar_hojas():
     return ws, filas, columnas, ws_det, cols_det
 
 
+def resumen_exclusiones(excl):
+    """Texto corto de las filas excluidas de una combinación: 'EAGR123456 02/Nov/2026; …' (con el voucher de la lista cuando lo hay)."""
+    partes = []
+    for e in excl[:8]:
+        f = e["fila"]
+        vouchers = ", ".join(l["VOUCHER"] for l in e["lineas"] if l.get("VOUCHER"))
+        partes.append(f"{f['booking_ref']} {f['date']}" + (f" (voucher {vouchers})" if vouchers else ""))
+    return "; ".join(partes) + (f"; … (+{len(excl) - 8})" if len(excl) > 8 else "")
+
+
+def registrar_exclusiones(ctx, loc, sup, stype, cod, excl):
+    """Guarda las filas excluidas para el informe del final y las anota en SUBSTITUTE_DETALLE (FASE EXCLUIDA, con el motivo)."""
+    combinacion = f"{loc}/{sup}/{stype}/{cod}"
+    for e in excl:
+        ctx.setdefault("lineas_excluidas", []).append({"combinacion": combinacion, "referencia": e["fila"]["booking_ref"], "fecha": e["fila"]["date"],
+                                                       "motivo": e["motivo"]})
+    if ctx.get("ws_det") is not None:
+        detalle = armar_detalle(ctx, loc, sup, stype, cod, [e["fila"] for e in excl], "EXCLUIDA", "COSTO_MANUALIZADO")
+        for d, e in zip(detalle, excl):
+            d["OBSERVACIONES"] = e["motivo"]
+        agregar_filas_batch(ctx["ws_det"], ctx["cols_det"], detalle)
+
+
 def imprimir_excluidas(excluidas):
-    """Resumen final de las combinaciones que no se procesaron por tener costo manualizado (la app lee la línea del encabezado)."""
+    """Resumen final de las líneas que no se procesaron por tener costo manualizado, con su motivo (la app lee la línea del encabezado)."""
     if not excluidas:
         return
-    print(f"\n📋 Excluidas por costo manualizado (revisar a mano): {len(excluidas)}")
-    for r_x, l_x in excluidas:
-        print(f"   - {r_x.get('LOCATION')}/{r_x.get('SUPPLIER')}/{r_x.get('SERVICE TYPE')}/{r_x.get('CODIGO')}: {X.texto_de_exclusion(l_x)}")
+    print(f"\n📋 Excluidas por costo manualizado (revisar a mano): {len(excluidas)} línea(s)")
+    for e in excluidas:
+        print(f"   - {e['combinacion']} · {e['referencia']} · {e['fecha']}: {e['motivo']}")
 
 
 def exigir_sin_pendientes(ws_det):
@@ -1595,23 +1727,14 @@ def main():
         unicas = [r for r in unicas if str(r["__row_idx__"]) == FILA]
         print(f"TOURPLAN_FILA={FILA}: se procesa solo esa fila ({len(unicas)} encontrada(s) PENDIENTE).")
 
-    # Costos manualizados (pestaña EXCLUSIONES del Sheet): una combinación con alguna línea manualizada del mismo tipo no se procesa; queda EXCLUIDA y se
-    # informa al final para revisarla a mano (Results no muestra el voucher: no se pueden separar las líneas de una misma combinación).
-    excluidas = []
+    # Costos manualizados (pestaña EXCLUSIONES del Sheet): las filas de Results que coincidan con una línea de la lista (referencia + fecha + código) se
+    # excluyen de la sustitución y se informan al final; los demás files de la combinación se procesan.
     try:
         exclusiones = X.por_combinacion(X.leer_del_sheet(ws))
     except Exception:
         exclusiones = {}
     if exclusiones:
-        for r in list(unicas):
-            lineas_x = X.lineas_que_excluyen(r, exclusiones)
-            if lineas_x:
-                detalle_x = X.texto_de_exclusion(lineas_x)
-                escribir_resultado_fila(ws, r["__row_idx__"], columnas, "EXCLUIDA",
-                                        f"Tiene {len(lineas_x)} línea(s) con costo manualizado, no se procesa (actualizar a mano): {detalle_x}")
-                excluidas.append((r, lineas_x))
-                unicas.remove(r)
-        print(f"Combinaciones EXCLUIDAS por costo manualizado (no se procesan): {len(excluidas)} (lista de {sum(len(v) for v in exclusiones.values())} línea(s) en EXCLUSIONES)")
+        print(f"Lista de costos manualizados (EXCLUSIONES): {sum(len(v) for v in exclusiones.values())} línea(s) en {len(exclusiones)} combinación(es)")
 
     sin_prov = L.combinaciones_sin_provisorio(unicas, PROVISORIOS)
     print(f"\nProvisorios definidos en el código: {len(PROVISORIOS)} combinaciones Location + Service Type "
@@ -1620,13 +1743,13 @@ def main():
         print(f"⚠ Sin provisorio definido para: {sin_prov} → esas filas terminarán en ERROR en modo aplicar.")
     print(f"Filas PENDIENTE a procesar: {len(unicas)}")
     if not unicas:
-        imprimir_excluidas(excluidas)
         print("\n⛔ Sin filas PENDIENTE para procesar.")
         return
 
     ctx = {"corrida": corrida, "desde": desde, "hasta": hasta, "abierta": False,
            "panel_pendiente": PROBAR_PANEL and MODO == "lectura", "panel": None,
-           "ws_det": ws_det, "cols_det": cols_det, "provisorios_ok": set(), "departamentos": None}
+           "ws_det": ws_det, "cols_det": cols_det, "provisorios_ok": set(), "departamentos": None,
+           "exclusiones": exclusiones, "lineas_excluidas": []}
 
     print("\n⚠ Mientras corre, NO toques la ventana de Chrome (cualquier click a mano puede alterar la lectura).")
     driver = tp.crear_driver()
@@ -1693,7 +1816,7 @@ def main():
         driver.quit()
         dur = int(time.time() - t_inicio)
         m, s = divmod(dur, 60)
-        imprimir_excluidas(excluidas)
+        imprimir_excluidas(ctx["lineas_excluidas"])
         print(f"\n🏁 Fin. Duración: {m}m {s:02d}s · filas OK={resumen['ok']} ERROR={resumen['error']} "
               f"· reservas leídas={resumen['reservas']}")
         if tiempos:

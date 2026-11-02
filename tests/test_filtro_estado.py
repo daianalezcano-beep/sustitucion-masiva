@@ -189,5 +189,93 @@ class FiltroDepartment(unittest.TestCase):
         self.assertIn("No encontré el grupo Department", cm.exception.detalle)
 
 
+def html_results(filas, scroll=False):
+    """Results de Substitute Service simulado: encabezado con checkbox (marca/desmarca todo), filas con checkbox y los contadores Found / Selected."""
+    cuerpo = "".join(
+        f'<tr><td class="tpcol-checkbox tpcol-substituteservice"><label><i></i><input type="checkbox"></label></td>'
+        f'<td class="tpcol-locationcode">BUE</td><td class="tpcol-servicecode">GU</td><td class="tpcol-suppliercode">1ACOS1</td>'
+        f'<td class="tpcol-optioncode">700GUI</td><td class="tpcol-bookingreference">{ref}</td><td class="tpcol-servicedate">{fecha}</td></tr>'
+        for ref, fecha in filas)
+    estilo = "height:90px;overflow:auto;" if scroll else ""
+    return f"""
+    <div id="resultsTab"><table><tr><td><tp-label tplabeltype="Found"></tp-label></td><td class="align-right"><label id="found">{len(filas)}</label></td></tr>
+      <tr><td><tp-label tplabeltype="Selected"></tp-label></td><td class="align-right"><label id="sel">0</label></td></tr></table>
+      <div style="{estilo}"><tp-grid><table><thead><tr><th class="tpcol-checkbox"><label><i></i><input type="checkbox" id="todos"></label></th></tr></thead><tbody>{cuerpo}</tbody></table></tp-grid></div></div>
+    <script>
+      const cuenta = () => document.querySelector('#sel').textContent = document.querySelectorAll('tp-grid tbody input:checked').length;
+      document.querySelector('#todos').addEventListener('click', e => {{ document.querySelectorAll('tp-grid tbody input').forEach(i => i.checked = e.target.checked); cuenta(); }});
+      document.querySelectorAll('tp-grid tbody input').forEach(i => i.addEventListener('click', cuenta));
+    </script>"""
+
+
+@unittest.skipIf(sd is None or not os.path.exists(CHROMIUM), "falta playwright o chromium")
+class ExclusionPorLinea(unittest.TestCase):
+    FILAS = [("EAGR1", "02/Nov/2026"), ("EAGR2", "02/Nov/2026"), ("EAGR2", "02/Nov/2026"), ("EAGR3", "03/Nov/2026"), ("EAGR4", "02/Nov/2026")]
+
+    def setUp(self):
+        self.pw = sync_playwright().start()
+        self.browser = self.pw.chromium.launch(executable_path=CHROMIUM, args=["--no-sandbox"])
+        self.pagina = self.browser.new_page()
+        self.d = Driver(self.pagina)
+        self.guardado = (sd.pausa, sd.jc)
+        sd.pausa = lambda s: None
+        sd.jc = lambda d, el: d.pagina.evaluate("document.querySelector('#todos').click()")      # el único click por jc es el del encabezado
+
+    def tearDown(self):
+        sd.pausa, sd.jc = self.guardado
+        self.browser.close()
+        self.pw.stop()
+
+    def cargar(self, filas, scroll=False):
+        self.pagina.set_content(html_results(filas, scroll))
+
+    def seleccionadas(self):
+        return self.pagina.evaluate("Array.from(document.querySelectorAll('tp-grid tbody tr')).filter(r => r.querySelector('input').checked)"
+                                    ".map(r => r.querySelector('.tpcol-bookingreference').textContent + ' ' + r.querySelector('.tpcol-servicedate').textContent)")
+
+    def excluir(self, *claves):
+        return [{"fila": {"booking_ref": r, "date": f, "location": "BUE", "service": "GU", "supplier": "1ACOS1", "code": "700GUI"}} for r, f in claves]
+
+    def test_destilda_solo_las_filas_pedidas_y_no_vuelve_a_clickear_las_ya_destildadas(self):
+        self.cargar(self.FILAS)
+        self.pagina.evaluate("document.querySelectorAll('tp-grid tbody input').forEach(i => i.checked = true)")
+        claves = [sd.X.clave_para_pantalla(e["fila"]) for e in self.excluir(("EAGR2", "02/11/2026"))]
+        self.assertEqual(claves, ["EAGR2|02/NOV/2026|BUE|GU|1ACOS1|700GUI"])
+        self.assertEqual(len(self.d.execute_script(sd.JS_DESTILDAR_FILAS, claves)), 2)           # las dos filas con esa clave (no se distinguen)
+        self.assertEqual(self.d.execute_script(sd.JS_DESTILDAR_FILAS, claves), [])               # segunda pasada: ya están destildadas, no se tocan
+        self.assertEqual(sorted(self.seleccionadas()), ["EAGR1 02/Nov/2026", "EAGR3 03/Nov/2026", "EAGR4 02/Nov/2026"])
+
+    def test_la_fecha_distingue_la_clave(self):
+        self.cargar([("EAGR1", "02/Nov/2026"), ("EAGR1", "03/Nov/2026")])
+        self.pagina.evaluate("document.querySelectorAll('tp-grid tbody input').forEach(i => i.checked = true)")
+        self.d.execute_script(sd.JS_DESTILDAR_FILAS, ["EAGR1|03/NOV/2026|BUE|GU|1ACOS1|700GUI"])
+        self.assertEqual(self.seleccionadas(), ["EAGR1 02/Nov/2026"])
+
+    def probar(self, scroll=False):
+        """seleccionar_con_exclusiones del script, con 'jc' haciendo el click real sobre el elemento."""
+        sd.seleccionar_con_exclusiones(self.d, len(self.FILAS), self.excluir(("EAGR2", "02/11/2026")), len(self.FILAS) - 2)
+
+    def test_selecciona_todo_y_deja_el_conteo_esperado(self):
+        self.cargar(self.FILAS)
+        self.probar()
+        self.assertEqual(self.pagina.evaluate("document.querySelector('#sel').textContent"), "3")
+        self.assertEqual(sorted(self.seleccionadas()), ["EAGR1 02/Nov/2026", "EAGR3 03/Nov/2026", "EAGR4 02/Nov/2026"])
+
+    def test_con_scroll_virtual_encuentra_las_filas_fuera_de_vista(self):
+        filas = [(f"EAGR{i}", "02/Nov/2026") for i in range(1, 30)]
+        self.FILAS = filas
+        self.cargar(filas, scroll=True)
+        sd.seleccionar_con_exclusiones(self.d, len(filas), self.excluir(("EAGR28", "02/11/2026")), len(filas) - 1)     # la fila 28 está bajo el scroll
+        self.assertNotIn("EAGR28 02/Nov/2026", self.seleccionadas())
+        self.assertEqual(len(self.seleccionadas()), len(filas) - 1)
+
+    def test_si_el_conteo_no_coincide_rechaza_y_deja_todo_sin_seleccionar(self):
+        self.cargar(self.FILAS)
+        with self.assertRaises(sd.ErrorFila) as cm:                                               # se espera destildar 2 filas y la clave no existe en la grilla
+            sd.seleccionar_con_exclusiones(self.d, len(self.FILAS), self.excluir(("NOEXISTE", "02/11/2026")), len(self.FILAS) - 1)
+        self.assertIn("no se movió nada", cm.exception.detalle)
+        self.assertEqual(self.seleccionadas(), [])                                                # no queda una selección parcial
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -429,11 +429,11 @@ class App(unittest.TestCase):
     def test_el_resumen_de_excluidas_aparece_al_terminar(self):
         self.configurar()
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
-        log = ["x\n", "[10:00:00] 📋 Excluidas por costo manualizado (revisar a mano): 2\n"]
+        log = ["x\n", "[10:00:00] 📋 Excluidas por costo manualizado (revisar a mano): 2 línea(s)\n"]
         at.session_state["_corrida"] = estado_falso(running=True, finished=True, log_lines=log, returncode=0, modo="aplicar")
         with mock.patch("common.sheets_client.conectar_sheets", side_effect=RuntimeError("sin red en la prueba")):
             at.run()
-        self.assertIn("2 combinación(es) excluida(s) por costo manualizado", self.textos(at))
+        self.assertIn("2 línea(s) excluida(s) por costo manualizado", self.textos(at))
 
     def test_la_seccion_de_costos_manualizados_esta_y_se_bloquea_al_correr(self):
         self.configurar()

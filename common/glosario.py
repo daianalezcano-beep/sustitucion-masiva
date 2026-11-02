@@ -10,7 +10,7 @@ COLA = {
     "OK": "Procesadas: el costo se actualizó y la verificación final dio igual que antes (la venta no cambia).",
     "Error": "No se pudieron procesar. El motivo está en la columna OBSERVACIONES del Sheet (abajo, qué significa cada error).",
     "Duplicado": "La misma combinación estaba repetida en el Sheet: se procesa una sola vez.",
-    "Otro": "Otros estados, por ejemplo EXCLUIDA (tiene costo manualizado) o DESCARTADA (código genérico 700/600); no se procesan.",
+    "Otro": "Otros estados, por ejemplo EXCLUIDA (todo con costo manualizado) o DESCARTADA (código genérico 700/600); no se procesan.",
 }
 
 # Estados de la columna ESTADO del Sheet: (estado, qué significa, qué hacer).
@@ -35,8 +35,10 @@ ESTADOS_SHEET = [
     ("ERROR: filtro de estado / department", "No se pudo dejar un filtro de Tourplan como se pidió.", "Volver a correr esa fila."),
     ("ERROR: tipo inválido", "La columna TIPO tiene un valor que no se entiende.", "Corregirlo a FITS o GRUPOS."),
     ("DUPLICADO", "La combinación estaba repetida en el Sheet.", "Nada: se procesó la otra fila."),
-    ("EXCLUIDA", "La combinación tiene alguna línea con el costo manualizado (Override), según la lista de exclusiones. No se procesa y se informa al final de la corrida.",
+    ("EXCLUIDA", "Todas las reservas de la combinación tienen el costo manualizado (Override) según la lista de exclusiones: no se procesó nada.",
      "Revisar esas líneas y actualizar el costo a mano en Tourplan."),
+    ("OK con líneas excluidas", "La combinación se procesó, pero algunas líneas se dejaron afuera por tener costo manualizado (o por no poder distinguirse de una que lo tiene). "
+     "Figuran en OBSERVACIONES, en SUBSTITUTE_DETALLE (fase EXCLUIDA) y en el resumen del final de la corrida.", "Revisar esas líneas a mano."),
     ("DESCARTADA", "Código genérico (700 o 600 + tres letras): valor cero que se manualiza. No se procesa.", "Nada."),
 ]
 

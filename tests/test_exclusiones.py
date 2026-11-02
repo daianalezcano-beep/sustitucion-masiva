@@ -60,6 +60,44 @@ class Lista(unittest.TestCase):
         self.assertEqual(X.lineas_que_excluyen(dict(base, CODIGO="OTRO", TIPO="GRUPOS"), por), [])
         self.assertIn("EAGP251948 22/11/2026 (voucher 2830288)", X.texto_de_exclusion(X.lineas_que_excluyen(dict(base, TIPO="GRUPOS"), por)))
 
+    def fila_results(self, ref, fecha="02/Nov/2026", cod="EZHT19"):
+        return {"booking_ref": ref, "date": fecha, "location": "BUE", "service": "TR", "supplier": "1TEP01", "code": cod}
+
+    def lista_ez(self, ref="EAGR123456", fecha="02/11/2026"):
+        return X.por_combinacion([{"REFERENCE": ref, "SERVICE DATE": fecha, "LOCATION": "BUE", "SERVICE TYPE": "TR", "SUPPLIER": "1TEP01", "CODIGO": "EZHT19",
+                                   "TIPO": "GRUPOS", "VOUCHER": "2830276", "DESCRIPCION": ""}])
+
+    def test_excluye_solo_la_fila_que_coincide_en_file_fecha_y_codigo(self):
+        filas = [self.fila_results("EAGR123456"), self.fila_results("EAGR999999"), self.fila_results("EAGR123456", "03/Nov/2026"),
+                 self.fila_results("EAGR123456", cod="OTRO")]
+        a_procesar, excluidas = X.separar_resultados(filas, self.lista_ez(), "BUE", "1TEP01", "TR", "EZHT19")
+        self.assertEqual([(e["fila"]["booking_ref"], e["fila"]["date"]) for e in excluidas], [("EAGR123456", "02/Nov/2026")])
+        self.assertEqual(len(a_procesar), 3)                                       # otros files, otra fecha u otro código: se procesan
+        self.assertIn("Costo manualizado (Override)", excluidas[0]["motivo"])
+        self.assertIn("voucher 2830276", excluidas[0]["motivo"])
+
+    def test_si_hay_mas_filas_iguales_que_lineas_en_la_lista_se_excluyen_todas(self):
+        filas = [self.fila_results("EAGR123456"), self.fila_results("EAGR123456"), self.fila_results("EAGR999999")]
+        a_procesar, excluidas = X.separar_resultados(filas, self.lista_ez(), "BUE", "1TEP01", "TR", "EZHT19")
+        self.assertEqual(len(excluidas), 2)
+        self.assertEqual([f["booking_ref"] for f in a_procesar], ["EAGR999999"])      # los otros files se procesan
+        self.assertTrue(all("Hay 2 líneas" in e["motivo"] and "no se pueden distinguir" in e["motivo"] for e in excluidas))
+
+    def test_con_dos_lineas_en_la_lista_y_dos_en_results_no_hay_ambiguedad(self):
+        lista = X.por_combinacion(sum((list(v) for v in self.lista_ez().values()), []) * 2)
+        _, excluidas = X.separar_resultados([self.fila_results("EAGR123456")] * 2, lista, "BUE", "1TEP01", "TR", "EZHT19")
+        self.assertEqual(len(excluidas), 2)
+        self.assertTrue(all("no se pueden distinguir" not in e["motivo"] for e in excluidas))
+
+    def test_sin_lista_para_la_combinacion_todo_se_procesa(self):
+        filas = [self.fila_results("EAGR123456")]
+        self.assertEqual(X.separar_resultados(filas, {}, "BUE", "1TEP01", "TR", "EZHT19"), (filas, []))
+        self.assertEqual(X.separar_resultados(filas, self.lista_ez(), "BUE", "1TEP01", "TR", "OTRO"), (filas, []))
+
+    def test_formatos_de_fecha_y_clave_para_la_pantalla(self):
+        self.assertEqual(X.clave_de_resultado(self.fila_results(" eagr1 ", "02/Nov/2026"))[:2], ("EAGR1", "02/11/2026"))
+        self.assertEqual(X.clave_para_pantalla(self.fila_results("EAGR1", "02/Nov/2026")), "EAGR1|02/NOV/2026|BUE|TR|1TEP01|EZHT19")
+
     def test_guardar_y_leer_en_el_sheet(self):
         class Hoja:
             def __init__(self, titulo):

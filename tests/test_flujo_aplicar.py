@@ -91,6 +91,12 @@ class FlujoAplicar(unittest.TestCase):
             m.eventos.append(f"seleccionar_todo {found}")
             return ("label", None)
 
+        m.no_mover = set()
+
+        def seleccionar_excl(driver, total, excluidas, esperado):
+            m.eventos.append(f"seleccionar_excl total={total} esperado={esperado}")
+            m.no_mover = {(e["fila"]["booking_ref"], e["fila"]["date"]) for e in excluidas}
+
         def abrir_modal(driver, found):
             m.eventos.append("abrir_modal")
 
@@ -108,7 +114,7 @@ class FlujoAplicar(unittest.TestCase):
                 raise sd.ErrorFila("ERROR: summary", "no apareció el summary")
             if etiqueta == "ida":
                 visibles = [f for f in m.A if m.filtro is None or f["status"] == m.filtro]
-                mover = visibles[m.ignorar:]
+                mover = [f for f in visibles[m.ignorar:] if (f["booking_ref"], f["date"]) not in m.no_mover]
                 m.A = [f for f in m.A if not any(f is x for x in mover)]
                 m.P = m.P + [dict(f, supplier="1EURO1", code="000000") for f in mover]
             else:
@@ -125,6 +131,7 @@ class FlujoAplicar(unittest.TestCase):
             return f"summary {etiqueta}"
 
         sd.consultar, sd.seleccionar_todo, sd.abrir_modal_reemplazo = consultar, seleccionar_todo, abrir_modal
+        sd.seleccionar_con_exclusiones = seleccionar_excl
         sd.llenar_modal, sd.confirmar, sd.ok_modal_y_summary = llenar_modal, confirmar, ok_summary
         sd.jc = lambda d, e: m.eventos.append("EXIT del modal")
         sd.dialog_repl = lambda d: type("D", (), {"find_element": lambda self, *a: None})()
@@ -157,6 +164,82 @@ class FlujoAplicar(unittest.TestCase):
         self.assertIn("llenar_modal vuelta destino=1ACOS1/700GUI status=IT pudo=sí", ev)
         self.assertEqual((self.m.P, len(self.m.A)), ([], 2))
         self.assertIn(("1ACOS1", "700GUI"), {(f["supplier"], f["code"]) for f in self.m.A})
+
+    def con_lista(self, mundo, *refs_fechas):
+        """Corre la combinación con una lista de exclusiones que trae esas (referencia, fecha) para BUE/GU/1ACOS1/700GUI."""
+        from common import exclusiones as X
+        self.preparar(mundo)
+        lista = [{"REFERENCE": r, "SERVICE DATE": f, "LOCATION": "BUE", "SERVICE TYPE": "GU", "SUPPLIER": "1ACOS1", "CODIGO": "700GUI",
+                  "TIPO": "GRUPOS", "VOUCHER": "99", "DESCRIPCION": ""} for r, f in refs_fechas]
+        self.ctx["exclusiones"] = X.por_combinacion(lista)
+        self.ctx["lineas_excluidas"] = []
+        row = {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"}
+        return sd.procesar_fila_aplicar(None, self.ctx, row)
+
+    def test_se_excluye_solo_la_linea_manualizada_y_se_procesan_los_demas_files(self):
+        estado, obs, found = self.con_lista(Mundo([fila("R1"), fila("R2"), fila("R3")]), ("R2", "01/11/2026"))
+        ev = self.m.eventos
+        self.assertEqual((estado, found), ("OK", 3))
+        self.assertIn("seleccionar_excl total=3 esperado=2", ev)                    # selecciona todo y destilda la manualizada
+        self.assertNotIn("seleccionar_todo 3", ev)
+        self.assertEqual(self.m.P, [])                                              # P quedó vacío y las 3 reservas están en A
+        self.assertEqual(sorted(f["booking_ref"] for f in self.m.A), ["R1", "R2", "R3"])
+        self.assertIn("EXCLUIDAS 1 por costo manualizado", obs)
+        self.assertIn("R2 01/Nov/2026 (voucher 99)", obs)
+        self.assertEqual([(e["referencia"], e["fecha"]) for e in self.ctx["lineas_excluidas"]], [("R2", "01/Nov/2026")])
+        self.assertIn("Costo manualizado (Override)", self.ctx["lineas_excluidas"][0]["motivo"])
+        cols = list(sd.COLS_DET)
+        fases = [f[cols.index("FASE")] for f in self.ws_det.filas]
+        self.assertEqual(sorted(fases), ["EXCLUIDA", "IDA_EN_CURSO", "IDA_EN_CURSO"])  # 2 movidas + 1 excluida registrada con su motivo
+        self.assertEqual([f[cols.index("RESULTADO")] for f in self.ws_det.filas if f[cols.index("FASE")] == "EXCLUIDA"], ["COSTO_MANUALIZADO"])
+
+    def test_si_hay_mas_filas_en_results_que_lineas_en_la_lista_se_excluyen_todas(self):
+        # dos filas con la misma referencia, fecha y código; la lista trae una: no se distinguen, se descartan las dos (y R2 se procesa)
+        estado, obs, found = self.con_lista(Mundo([fila("R1"), fila("R1"), fila("R2")]), ("R1", "01/11/2026"))
+        self.assertEqual((estado, found), ("OK", 3))
+        self.assertIn("seleccionar_excl total=3 esperado=1", self.m.eventos)
+        motivos = [e["motivo"] for e in self.ctx["lineas_excluidas"]]
+        self.assertEqual(len(motivos), 2)
+        self.assertTrue(all("no se pueden distinguir" in m and "Hay 2 líneas" in m for m in motivos))
+        self.assertEqual(sorted(f["booking_ref"] for f in self.m.A), ["R1", "R1", "R2"])
+
+    def test_si_todas_las_reservas_estan_excluidas_no_se_toca_nada(self):
+        estado, obs, found = self.con_lista(Mundo([fila("R1"), fila("R2")]), ("R1", "01/11/2026"), ("R2", "01/11/2026"))
+        self.assertEqual((estado, found), ("EXCLUIDA", 2))
+        ev = self.m.eventos
+        self.assertNotIn("abrir_modal", ev)
+        self.assertNotIn("OK ida", ev)
+        self.assertNotIn("confirmar", ev)
+        self.assertEqual(len(self.m.A), 2)
+        self.assertEqual(len(self.ctx["lineas_excluidas"]), 2)
+
+    def test_con_varios_estados_se_excluye_en_uno_y_se_procesa_el_otro(self):
+        mundo = Mundo([fila("R1", status="IT"), fila("R2", status="IT"), fila("R3", status="OT")])
+        estado, obs, found = self.con_lista(mundo, ("R2", "01/11/2026"))
+        ev = self.m.eventos
+        self.assertEqual((estado, found), ("OK", 3))
+        self.assertIn("seleccionar_excl total=2 esperado=1", ev)                    # el grupo IT: 2 reservas, 1 excluida
+        self.assertIn("seleccionar_todo 1", ev)                                     # el grupo OT: sin excluidas
+        self.assertEqual(self.m.P, [])
+        self.assertEqual(sorted(f["booking_ref"] for f in self.m.A), ["R1", "R2", "R3"])
+
+    def test_si_todo_un_estado_esta_excluido_solo_se_mueve_el_otro_con_su_filtro(self):
+        mundo = Mundo([fila("R1", status="IT"), fila("R2", status="OT"), fila("R3", status="OT")])
+        estado, obs, found = self.con_lista(mundo, ("R1", "01/11/2026"))
+        ev = self.m.eventos
+        self.assertEqual((estado, found), ("OK", 3))
+        self.assertNotIn("consultar A solo Initial", ev)                            # el estado excluido ni se consulta
+        self.assertIn("consultar A solo OK Tráfico", ev)                            # el otro estado se procesa con su filtro (no se mueven las del excluido)
+        self.assertIn("seleccionar_todo 2", ev)
+        self.assertEqual(sorted(f["booking_ref"] for f in self.m.A), ["R1", "R2", "R3"])
+
+    def test_sin_lista_el_flujo_no_cambia(self):
+        self.preparar(Mundo([fila("R1"), fila("R2")]))
+        self.ctx["exclusiones"] = {}
+        estado, obs, found = sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
+        self.assertEqual((estado, found), ("OK", 2))
+        self.assertNotIn("EXCLUIDAS", obs)
+        self.assertFalse(any(x.startswith("seleccionar_excl") for x in self.m.eventos))
 
     def test_sin_datos_de_pickup_no_se_repone(self):
         estado, _, _ = self.correr(Mundo([fila("R1", sin_pudo=True)]))
@@ -745,34 +828,30 @@ class MainOrquestador(unittest.TestCase):
         with self.assertRaises(SystemExit):
             sd.main()
 
-    def test_las_combinaciones_con_costo_manualizado_quedan_excluidas_y_se_informan(self):
-        from common import exclusiones as X
-        lista = [{"REFERENCE": "EAGP100", "SERVICE DATE": "21/11/2026", "LOCATION": "BUE", "SERVICE TYPE": "GU", "SUPPLIER": "S1", "CODIGO": "C1",
-                  "TIPO": "GRUPOS", "VOUCHER": "555", "DESCRIPCION": "x"}]
-        filas = [{"__row_idx__": 2, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C1", "TIPO": "GRUPOS", "ESTADO": "PENDIENTE"},
-                 {"__row_idx__": 3, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C1", "TIPO": "FITS", "ESTADO": "PENDIENTE"},
-                 {"__row_idx__": 4, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C2", "TIPO": "GRUPOS", "ESTADO": "PENDIENTE"}]
+    def test_main_informa_al_final_las_lineas_excluidas_con_su_motivo(self):
+        import contextlib
+        import io
+        filas = [{"__row_idx__": 2, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C1", "TIPO": "GRUPOS", "ESTADO": "PENDIENTE"}]
         sd.cargar_hojas = lambda: (object(), filas, sd.COLS_INPUT + ["TIPO", "OBSERVACIONES", "TIMESTAMP"], None, None)
+        lista = [{"REFERENCE": "EAGR1", "SERVICE DATE": "01/11/2026", "LOCATION": "BUE", "SERVICE TYPE": "GU", "SUPPLIER": "S1", "CODIGO": "C1",
+                  "TIPO": "GRUPOS", "VOUCHER": "77", "DESCRIPCION": ""}]
         guardado = sd.X.leer_del_sheet
         sd.X.leer_del_sheet = lambda ws: lista
+
+        def lectura(d, ctx, row):          # el procesamiento registra una línea excluida, como lo hace procesar_fila_*
+            sd.registrar_exclusiones(ctx, "BUE", "S1", "GU", "C1", sd.X.separar_resultados([fila("EAGR1", supplier="S1", code="C1")], ctx["exclusiones"], "BUE", "S1", "GU", "C1")[1])
+            return "obs", [], 1, {}
+        sd.procesar_fila_lectura = lectura
+        sd.MODO, sd.TIPO_RESERVAS = "lectura", "AMBOS"
         try:
-            import contextlib
-            import io
-            for modo in ("lectura", "aplicar"):
-                self.escrituras.clear()
-                sd.MODO, sd.TIPO_RESERVAS = modo, "AMBOS"
-                salida = io.StringIO()
-                with contextlib.redirect_stdout(salida):
-                    sd.main()
-                estados = {i: v.get("ESTADO") for i, v in self.escrituras if v.get("ESTADO")}
-                self.assertEqual(estados.get(2), "EXCLUIDA", modo)                                       # GRUPOS de la combinación manualizada
-                obs = next(v["OBSERVACIONES"] for i, v in self.escrituras if i == 2 and v.get("ESTADO"))
-                self.assertIn("EAGP100 21/11/2026 (voucher 555)", obs)
-                self.assertNotEqual(estados.get(3), "EXCLUIDA", modo)                                    # FITS de la misma combinación: se procesa
-                self.assertNotEqual(estados.get(4), "EXCLUIDA", modo)                                    # otra combinación: se procesa
-                self.assertIn("Excluidas por costo manualizado (revisar a mano): 1", salida.getvalue())
+            salida = io.StringIO()
+            with contextlib.redirect_stdout(salida):
+                sd.main()
         finally:
             sd.X.leer_del_sheet = guardado
+        texto = salida.getvalue()
+        self.assertIn("Excluidas por costo manualizado (revisar a mano): 1 línea(s)", texto)
+        self.assertIn("BUE/S1/GU/C1 · EAGR1 · 01/Nov/2026: Costo manualizado (Override)", texto)
 
     def test_si_el_login_falla_no_se_hace_logout(self):
         def login_roto(d):
@@ -918,6 +997,33 @@ class LecturaSobreConsultar(unittest.TestCase):
         self.assertTrue(all(set(d) <= set(sd.COLS_DET) for d in detalle))   # solo columnas que existen en la hoja
         with self.assertRaises(sd.ErrorFila):                                # fila incompleta
             sd.procesar_fila_lectura(None, ctx, {"LOCATION": "BUE", "SUPPLIER": "", "SERVICE TYPE": "GU", "CODIGO": "X"})
+
+
+@unittest.skipIf(sd is None, "falta una dependencia para importar el script")
+class LecturaConExclusiones(unittest.TestCase):
+    def test_prueba_la_exclusion_por_linea_sin_tocar_ok_y_la_informa(self):
+        from common import exclusiones as X
+        guardado = (sd.consultar, sd.probar_seleccion_total, sd.seleccionar_con_exclusiones, sd.limpiar_seleccion)
+        filas = [fila("R1"), fila("R2"), fila("R3")]
+        eventos = []
+        sd.consultar = lambda driver, ctx, loc, stype, sup, cod, d, h, leer=True, marca=None, service_status=None: {
+            "found": len(filas), "filas": filas, "modo": "completa", "desc": "d"}
+        sd.probar_seleccion_total = lambda d, f: "label"
+        sd.seleccionar_con_exclusiones = lambda d, total, excl, esperado: eventos.append(("selecciona", total, len(excl), esperado))
+        sd.limpiar_seleccion = lambda d: eventos.append(("limpia",))
+        lista = [{"REFERENCE": "R2", "SERVICE DATE": "01/11/2026", "LOCATION": "BUE", "SERVICE TYPE": "GU", "SUPPLIER": "1ACOS1", "CODIGO": "700GUI",
+                  "TIPO": "GRUPOS", "VOUCHER": "5", "DESCRIPCION": ""}]
+        try:
+            ctx = {"corrida": "c1", "desde": datetime(2026, 11, 1), "hasta": datetime(2049, 12, 31), "panel_pendiente": False,
+                   "exclusiones": X.por_combinacion(lista), "lineas_excluidas": [], "ws_det": None}
+            obs, detalle, found, marcas = sd.procesar_fila_lectura(None, ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
+        finally:
+            sd.consultar, sd.probar_seleccion_total, sd.seleccionar_con_exclusiones, sd.limpiar_seleccion = guardado
+        self.assertEqual(eventos, [("selecciona", 3, 1, 2), ("limpia",)])           # selecciona todo, destilda 1, verifica 2 y deja todo sin seleccionar
+        self.assertIn("exclusion_por_linea=OK(1 de 3)", obs)
+        self.assertIn("EXCLUIDAS 1 por costo manualizado (revisar a mano): R2 01/Nov/2026 (voucher 5)", obs)
+        self.assertEqual(len(detalle), 2)                                          # el detalle de lectura trae solo las reservas que se procesarían
+        self.assertEqual(len(ctx["lineas_excluidas"]), 1)
 
 
 @unittest.skipIf(sd is None, "falta una dependencia para importar el script")

@@ -439,8 +439,8 @@ def dialogo_guia():
 previa y **Confirmar**. Nada se escribe en el Sheet hasta que confirmes. Las fechas de los servicios se guardan solas en la pestaña **PARAMETROS** del Sheet
 (*DESDE* y *HASTA*); si cargás combinaciones a mano, completalas ahí.
 
-**Costos manualizados.** Antes de aplicar, abrí *Costos manualizados (lista de exclusiones)* y subí la lista de Tourplan de servicios con Override. Las combinaciones que
-tengan alguna de esas líneas no se procesan (quedan EXCLUIDAS y se informan al final para actualizarlas a mano). La lista tiene que ser de hoy, o confirmar que no hay.
+**Costos manualizados.** Antes de aplicar, abrí *Costos manualizados (lista de exclusiones)* y subí la lista de Tourplan de servicios con Override. Las líneas que coincidan
+(reserva + fecha + código) no se procesan, y el resto de la combinación sí. Se informan al final con su motivo para actualizarlas a mano. La lista tiene que ser de hoy, o confirmar que no hay.
 
 **2. Elegir el modo y el tipo de reservas.** **Solo revisar** lee y muestra qué se procesaría, sin modificar nada. **Aplicar cambios** hace la sustitución real
 y modifica reservas en Tourplan. El tipo (**FITS**, **GRUPOS** o **AMBOS**) decide qué reservas se procesan en esta corrida.
@@ -508,7 +508,7 @@ def _cerrar_si_termino(estado):
             m_x = re.search(r"Excluidas por costo manualizado \(revisar a mano\): (\d+)", linea)
             if m_x:
                 nivel_x, texto_x = estado["mensaje"]
-                estado["mensaje"] = (nivel_x, texto_x + f" ⚠ {m_x.group(1)} combinación(es) excluida(s) por costo manualizado: revisalas a mano (el detalle está en la consola y en el Sheet, estado EXCLUIDA).")
+                estado["mensaje"] = (nivel_x, texto_x + f" ⚠ {m_x.group(1)} línea(s) excluida(s) por costo manualizado: revisalas a mano (el motivo de cada una está en la consola y en SUBSTITUTE_DETALLE, fase EXCLUIDA).")
         estado["aviso_cerrado"] = False
         st.session_state["_reiniciar_confirmo"] = True            # la confirmación de Aplicar vale para una sola corrida
         _refrescar_conteo(estado, _sheet_url_guardada())      # la cola está arriba: que refleje el resultado
@@ -640,8 +640,9 @@ def _guardar_exclusiones(lineas, sheet_url, estado):
 def render_exclusiones(estado, bloqueado):
     """Lista de servicios con costo manualizado (Override): las combinaciones que la tengan no se procesan."""
     st.caption("Exportá de Tourplan la lista de servicios con costo manualizado (Override = Yes), con las columnas **Bkg. Reference, Srv. Date, Voucher #, Srv. Type, "
-               "Opt. Description, Override y Full option code** (CSV, TSV o Excel). Las combinaciones que tengan alguna de esas líneas **no se procesan**: quedan "
-               "EXCLUIDAS y se informan al final de la corrida para revisarlas a mano. Al guardar, la lista anterior se reemplaza.")
+               "Opt. Description, Override y Full option code** (CSV, TSV o Excel). En cada combinación, las líneas que coincidan (reserva + fecha + código) **no se "
+               "procesan**; las demás sí. Si en Tourplan hay más líneas iguales que en la lista, se excluyen todas. Se informan al final de la corrida con su motivo "
+               "para revisarlas a mano. Al guardar, la lista anterior se reemplaza.")
     info = estado.get("excl_info")
     if info:
         cuando = f" (cargada el {info[2]:%d/%m/%Y %H:%M})" if info[2] else ""
@@ -671,7 +672,7 @@ def render_exclusiones(estado, bloqueado):
     m = st.columns(4)
     m[0].metric("Líneas válidas", len(a["lineas"]))
     m[1].metric("Combinaciones", a["combinaciones"])
-    m[2].metric("Pendientes que se excluirían", f"{a['pendientes_afectadas']} de {a['pendientes']}")
+    m[2].metric("Combinaciones pendientes con líneas manualizadas", f"{a['pendientes_afectadas']} de {a['pendientes']}")
     m[3].metric("Filas no válidas", len(a["invalidas"]))
     if a["invalidas"]:
         st.warning("Filas que no se pudieron leer (no se guardan): " + "; ".join(f"fila {n}: {motivo}" for n, motivo in a["invalidas"][:8]))

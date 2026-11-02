@@ -22,8 +22,9 @@ cancelados no entran en la corrida.
    **Abortar** corta al terminar la combinación en curso.
 
 ## Costos manualizados
-Antes de aplicar, en la tarjeta de ejecución abrí **Costos manualizados (lista de exclusiones)** y subí la lista de Tourplan de servicios con Override. Las combinaciones que tengan alguna de esas
-líneas no se procesan: quedan `EXCLUIDA` y la app las informa al final para actualizarlas a mano. La lista tiene que ser de hoy; si no hay costos manualizados, tildá la confirmación.
+Antes de aplicar, en la tarjeta de ejecución abrí **Costos manualizados (lista de exclusiones)** y subí la lista de Tourplan de servicios con Override. Las líneas que coincidan (reserva + fecha + código)
+no se procesan y el resto de la combinación sí; si hay más líneas iguales en Tourplan que en la lista, se excluyen todas. Al terminar, la app informa cuáles y por qué (también en la consola y en
+SUBSTITUTE_DETALLE) para que las actualices a mano. La lista tiene que ser de hoy; si no hay costos manualizados, tildá la confirmación. Conviene probarlo primero en modo **Solo revisar**.
 
 ## Después
 1. Exportá el reporte **"después"** con las mismas opciones que el "antes".
@@ -37,7 +38,7 @@ líneas no se procesan: quedan `EXCLUIDA` y la app las informa al final para act
 - `ERROR_REVISAR`: algo quedó distinto a lo esperado; hay que mirarlo.
 - `ERROR_COLGADAS` o "corrida detenida": pudo quedar una reserva en el servicio temporal. **No volver a correr hasta revisarlo con quien mantiene la herramienta.**
 - `DUPLICADO`: la combinación estaba repetida en la hoja.
-- `EXCLUIDA`: la combinación tiene alguna línea con el costo manualizado (según la lista de exclusiones): no se procesó, hay que revisarla a mano.
+- `EXCLUIDA`: todas las reservas de la combinación tienen costo manualizado (según la lista de exclusiones): no se procesó nada, hay que revisarla a mano.
 - `DESCARTADA`: código genérico (`700` o `600` + tres letras, ej. `700GUI`): valor cero que se manualiza, la herramienta no lo procesa.
 
 ## Si algo sale raro

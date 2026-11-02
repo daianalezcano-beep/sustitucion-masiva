@@ -5,9 +5,9 @@ Sin Tourplan ni Streamlit. Un costo manualizado es una negociación previa que l
 que sale de un reporte de Tourplan (hoy una tabla dinámica; más adelante un reporte dinámico) con las columnas: Bkg. Reference, Srv. Date, Voucher #,
 Srv. Type, Opt. Description, Override y Full option code (ubicación 3 + servicio 2 + proveedor 6 + código del resto: BUETR1TEP01CT437 = BUE + TR + 1TEP01 + CT437).
 
-La lista se guarda en la pestaña EXCLUSIONES del Sheet (se reemplaza completa en cada carga). El script no procesa una combinación (ubicación + servicio +
-proveedor + código) que tenga alguna línea en la lista del mismo tipo de reservas: la marca EXCLUIDA y la informa al final de la corrida para revisarla a mano.
-Se salta la combinación entera (y no solo la línea) porque Results no muestra el voucher y dos líneas con la misma referencia, fecha y código no se distinguen.
+La lista se guarda en la pestaña EXCLUSIONES del Sheet (se reemplaza completa en cada carga). El script no procesa las filas de Results que coincidan, en referencia + fecha + código (y ubicación,
+servicio y proveedor), con una línea de la lista: las destilda antes de la sustitución y las informa al final de la corrida con su motivo para revisarlas a mano. Results
+no muestra el voucher: si hay más filas con esa clave que líneas en la lista, no se pueden distinguir y se excluyen todas. Los demás files de la combinación se procesan.
 """
 
 import csv
@@ -125,11 +125,64 @@ def por_combinacion(lineas):
 
 
 def lineas_que_excluyen(fila, exclusiones):
-    """Líneas de la lista que hacen que no se procese esta fila del Sheet (misma combinación y mismo tipo de reservas; una fila sin TIPO coincide con cualquiera).
-    `exclusiones`: resultado de por_combinacion()."""
+    """Líneas de la lista que caen en la combinación de esta fila del Sheet y en su tipo de reservas (una fila sin TIPO coincide con cualquiera). Sirve para
+    saber si la combinación tiene alguna línea manualizada. `exclusiones`: resultado de por_combinacion()."""
     candidatas = exclusiones.get(_clave(fila.get("LOCATION"), fila.get("SUPPLIER"), fila.get("SERVICE TYPE"), fila.get("CODIGO")), [])
     tipo = T.normalizar_tipo(fila.get("TIPO"))
     return [l for l in candidatas if not tipo or l.get("TIPO", "") == tipo]
+
+
+def _fecha_dd(txt):
+    d = L.parsear_fecha(txt)
+    return d.strftime("%d/%m/%Y") if d else str(txt or "").strip().upper()
+
+
+def clave_de_resultado(f):
+    """Clave de una fila de Results (dict del script: booking_ref, date, location, service, supplier, code): (referencia, fecha DD/MM/AAAA, ubicación, servicio, proveedor, código)."""
+    return (str(f.get("booking_ref", "")).strip().upper(), _fecha_dd(f.get("date")), str(f.get("location", "")).strip().upper(),
+            str(f.get("service", "")).strip().upper(), str(f.get("supplier", "")).strip().upper(), str(f.get("code", "")).strip().upper())
+
+
+def clave_de_linea(l):
+    return (str(l["REFERENCE"]).strip().upper(), _fecha_dd(l["SERVICE DATE"]), str(l["LOCATION"]).strip().upper(),
+            str(l["SERVICE TYPE"]).strip().upper(), str(l["SUPPLIER"]).strip().upper(), str(l["CODIGO"]).strip().upper())
+
+
+def clave_para_pantalla(f):
+    """La misma clave de una fila de Results como la lee la pantalla de Tourplan (fecha DD/Mon/AAAA en mayúsculas), separada por '|': sirve para ubicar la fila en la grilla."""
+    ref, fecha, loc, serv, sup, cod = clave_de_resultado(f)
+    d = L.parsear_fecha(fecha)
+    return "|".join([ref, (L.fmt_tp(d) if d else fecha).upper(), loc, serv, sup, cod])
+
+
+def separar_resultados(filas, exclusiones, loc, sup, stype, cod):
+    """Separa las filas de Results de una combinación en (a_procesar, excluidas). Se excluye toda fila de Results que coincida en referencia + fecha +
+    código (y ubicación, servicio y proveedor) con una línea de la lista; si en Results hay más filas con esa clave que líneas en la lista, no se pueden
+    distinguir y se excluyen todas. `excluidas`: [{'fila', 'motivo', 'lineas'}]. Sin líneas para la combinación, todo se procesa."""
+    candidatas = exclusiones.get(_clave(loc, sup, stype, cod), []) if exclusiones else []
+    if not candidatas:
+        return list(filas), []
+    en_lista = {}
+    for l in candidatas:
+        en_lista.setdefault(clave_de_linea(l), []).append(l)
+    en_results = {}
+    for f in filas:
+        en_results.setdefault(clave_de_resultado(f), []).append(f)
+    a_procesar, excluidas = [], []
+    for f in filas:
+        k = clave_de_resultado(f)
+        if k not in en_lista:
+            a_procesar.append(f)
+            continue
+        lineas, n_filas = en_lista[k], len(en_results[k])
+        vouchers = ", ".join(l["VOUCHER"] for l in lineas if l.get("VOUCHER"))
+        if n_filas > len(lineas):
+            motivo = (f"Hay {n_filas} líneas en Tourplan con la misma referencia, fecha y código y la lista de costos manualizados tiene {len(lineas)}"
+                      f"{' (voucher ' + vouchers + ')' if vouchers else ''}: no se pueden distinguir, se excluyen todas. Revisar a mano")
+        else:
+            motivo = f"Costo manualizado (Override) según la lista de exclusiones{' (voucher ' + vouchers + ')' if vouchers else ''}. Revisar a mano"
+        excluidas.append({"fila": f, "motivo": motivo, "lineas": lineas})
+    return a_procesar, excluidas
 
 
 def texto_de_exclusion(lineas, maximo=8):
