@@ -69,13 +69,21 @@ class ReporteEntrada(unittest.TestCase):
         self.assertEqual(R.filas_para_hoja(p["a_cargar"])[1]["TIPO"], "GRUPOS")
 
     def test_un_department_sin_clasificar_no_se_procesa(self):
-        lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EAPR9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"      # PR: marcado para ambos
+        lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EABO9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"      # BO: marcado para ambos
                   "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Sanchez\n")
         p = R.armar_plan(R.leer_reporte((CAB + "\n" + lineas).encode("utf-8")), PROV)
         self.assertEqual([c["TIPO"] for c in p["a_cargar"]], ["FITS"])
         self.assertEqual(p["resumen"]["Líneas de Department sin clasificar"], 1)
         motivo = p["descartadas"][0]["MOTIVO"]
-        self.assertIn("Department sin clasificar (PR)", motivo)
+        self.assertIn("Department sin clasificar (BO)", motivo)
+
+    def test_los_viajes_de_promocion_pr_no_se_descartan_y_se_cargan_como_promo(self):
+        lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EAPR9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"
+                  "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Sanchez\n")
+        p = R.armar_plan(R.leer_reporte((CAB + "\n" + lineas).encode("utf-8")), PROV)
+        self.assertEqual(sorted(c["TIPO"] for c in p["a_cargar"]), ["FITS", "PROMO"])
+        self.assertEqual((p["descartadas"], p["resumen"]["Líneas de Department sin clasificar"]), ([], 0))
+        self.assertEqual(R.filas_para_hoja(p["a_cargar"])[1]["TIPO"], "PROMO")
 
     def test_en_hoja_distingue_el_tipo_y_una_fila_sin_tipo_cubre_a_los_dos(self):
         lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Sanchez\n"
@@ -112,10 +120,11 @@ class ReporteEntrada(unittest.TestCase):
         r = p["resumen"]
         self.assertEqual((r["Líneas del reporte"], r["Líneas excluidas (servicio cancelado)"]), (1595, 202))
         self.assertEqual(r["Líneas excluidas (proveedor por asignar)"], 628)
-        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (311, 737))       # una fila por combinación y TIPO (ver el recuento por tipo abajo); la corrida real del 27/10 procesó 276 combinaciones
-        self.assertEqual(r["Líneas de Department sin clasificar"], 8)                              # las de EAPR (Department PR)
-        self.assertEqual(sorted({c["TIPO"] for c in p["a_cargar"]}), ["FITS", "GRUPOS"])
+        self.assertEqual((r["Combinaciones a cargar"], r["Reservas a cargar"]), (317, 745))       # una fila por combinación y TIPO (ver el recuento por tipo abajo); la corrida real del 27/10 procesó 276 combinaciones
+        self.assertEqual(r["Líneas de Department sin clasificar"], 0)                              # las de EAPR (Department PR) son de promoción: se cargan
+        self.assertEqual(sorted({c["TIPO"] for c in p["a_cargar"]}), ["FITS", "GRUPOS", "PROMO"])
         self.assertEqual((sum(c["TIPO"] == "FITS" for c in p["a_cargar"]), sum(c["TIPO"] == "GRUPOS" for c in p["a_cargar"])), (148, 163))
+        self.assertEqual(sum(c["TIPO"] == "PROMO" for c in p["a_cargar"]), 6)
         self.assertTrue(all(c["SUPPLIER"] != "GUIAPO" for c in p["a_cargar"]))
         self.assertEqual(r["Desde"].strftime("%d/%m/%Y"), "28/10/2026")
 

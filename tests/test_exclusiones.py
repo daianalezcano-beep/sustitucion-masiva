@@ -30,7 +30,7 @@ class Lista(unittest.TestCase):
         l0 = r["lineas"][0]
         self.assertEqual((l0["REFERENCE"], l0["SERVICE DATE"], l0["LOCATION"], l0["SERVICE TYPE"], l0["SUPPLIER"], l0["CODIGO"], l0["VOUCHER"]),
                          ("EAPR251948", "21/11/2026", "BUE", "TR", "1TEP01", "CT437", "2830276"))
-        self.assertEqual([l["TIPO"] for l in r["lineas"]], ["", "GRUPOS", "GRUPOS"])                   # PR no está clasificado
+        self.assertEqual([l["TIPO"] for l in r["lineas"]], ["PROMO", "GRUPOS", "GRUPOS"])               # PR: promoción
 
     def test_acepta_csv_con_punto_y_coma_y_excel(self):
         csv = TSV.decode().replace("\t", ";").encode()

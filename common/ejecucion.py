@@ -108,8 +108,8 @@ def contar_estados(filas, columna="ESTADO"):
 
 
 def contar_pendientes_por_tipo(filas, columna="ESTADO"):
-    """Filas PENDIENTE de la hoja según su TIPO: {'FITS': n, 'GRUPOS': n, '': n (sin TIPO: anteriores a esa columna)}."""
-    conteo = {T.TIPO_FITS: 0, T.TIPO_GRUPOS: 0, "": 0}
+    """Filas PENDIENTE de la hoja según su TIPO: {'FITS': n, 'GRUPOS': n, 'PROMO': n, '': n (sin TIPO: anteriores a esa columna)}."""
+    conteo = {T.TIPO_FITS: 0, T.TIPO_GRUPOS: 0, T.TIPO_PROMO: 0, "": 0}
     for f in filas:
         if clasificar_estado(f.get(columna)) == "Pendiente":
             tipo = T.normalizar_tipo(f.get("TIPO"))

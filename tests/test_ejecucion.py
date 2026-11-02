@@ -47,7 +47,7 @@ class Parametros(unittest.TestCase):
         filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}, {"ESTADO": "PENDIENTE", "TIPO": "fit"}, {"ESTADO": "PENDIENTE", "TIPO": "GRUPOS"},
                  {"ESTADO": "PENDIENTE"}, {"ESTADO": "OK", "TIPO": "FITS"}, {"ESTADO": "PENDIENTE", "TIPO": "RARO"}]
         por_tipo = E.contar_pendientes_por_tipo(filas)
-        self.assertEqual(por_tipo, {"FITS": 2, "GRUPOS": 1, "": 1})
+        self.assertEqual(por_tipo, {"FITS": 2, "GRUPOS": 1, "PROMO": 0, "": 1})
         self.assertEqual([E.pendientes_del_modo(por_tipo, m) for m in ("FITS", "GRUPOS", "AMBOS")], [2, 1, 4])
         self.assertIsNone(E.pendientes_del_modo(None, "FITS"))
 

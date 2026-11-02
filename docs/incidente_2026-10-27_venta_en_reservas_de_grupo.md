@@ -130,3 +130,6 @@ correr el modo GRUPOS.
 grupos, así que la herramienta los clasifica como **GRUPOS** (no se procesan en el modo FITS). Evidencia disponible: en la comparación de la corrida del 27/10
 las 31 líneas `EAFG` comparadas no perdieron la venta (13 con cambio de costo, 18 sin cambios), así que si se comprobara que se comportan como FITS se pueden pasar a esa lista
 en `common/tipo_reserva.py`.
+
+**Ajuste (PR):** `PR` («Promoción Comercial Receptivo», referencias `EAPR`) son viajes de promoción que pueden ser individuales o de grupo. Dejan de descartarse: se cargan con
+`TIPO = PROMO` y se procesan en cualquier modo (FITS, GRUPOS o AMBOS) con su propio filtro Department (`PR`). Quedan sin clasificar solo `BO CF FL SL US AC RD` y el vacío.

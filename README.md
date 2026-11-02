@@ -45,8 +45,7 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
 - **Tipo de reservas (FITS / GRUPOS / AMBOS):** la hoja `SUBSTITUTE` tiene una columna `TIPO` (la app la crea si falta) y el script aplica el filtro
   **Department** de Substitute Service según el tipo de cada fila. El Department es las letras 3 y 4 de la Reference (`EAGP...` = `GP`). La
   tabla (en `common/tipo_reserva.py`, tomada de la configuración de Tourplan): FITS = `FI FM FT MI OP PE PI PU`; GRUPOS = `GP GR IN` y `FG` (individuales que se desprenden de un grupo y se trabajan también desde el módulo de grupos; en Tourplan figura solo como individual);
-  **sin clasificar** (marcados para ambos o para ninguno: `BO CF FL PR SL US AC RD` y el vacío) = no se procesan hasta clasificarlos
-  (`PR` es el de `EAPR`). Una combinación con reservas de los dos tipos son dos filas. En el provisorio se miran todos los Department. Después
+  **PROMO** = `PR` (viajes de promoción, `EAPR`: pueden ser individuales o de grupo; se procesan en cualquier modo FITS/GRUPOS/AMBOS, con su propia fila y filtro Department; si tienen costo manualizado, la lista de exclusiones los cubre); **sin clasificar** (marcados para ambos o para ninguno: `BO CF FL SL US AC RD` y el vacío) = no se procesan hasta clasificarlos. Una combinación con reservas de los dos tipos son dos filas. En el provisorio se miran todos los Department. Después
   de leer Results se verifica que ninguna reserva sea de un Department fuera del filtro (si no, `ERROR: Results`). Las filas sin `TIPO` (anteriores
   a la columna) solo se procesan en AMBOS, con los Department clasificados. El PRE se verifica por tipo.
 - **Cargar combinaciones desde un reporte de Tourplan:** sección 1 del paso Ejecutar (opción «Cargar un reporte nuevo»). Se sube el reporte **Service Status** (CSV); la app saca los servicios

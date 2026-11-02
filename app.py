@@ -727,7 +727,7 @@ def render_cargar_reporte(estado, bloqueado):
         st.warning(f"La hoja ya tiene {plan['pendientes_en_hoja']} fila(s) PENDIENTE: al ejecutar se van a procesar junto con las que cargues ahora.")
     if r.get("Líneas de Department sin clasificar"):
         st.warning(f"{r['Líneas de Department sin clasificar']} línea(s) son de un Department sin clasificar como FITS o GRUPOS "
-                   "(PR, BO, CF, FL, SL, US, AC, RD o vacío): no se cargan, están en Descartadas. Se clasifican en common/tipo_reserva.py.")
+                   "(BO, CF, FL, SL, US, AC, RD o vacío): no se cargan, están en Descartadas. Se clasifican en common/tipo_reserva.py.")
     if r["Líneas incompletas"]:
         st.warning(f"{r['Líneas incompletas']} línea(s) del reporte tienen Location, Supplier, Service u Option vacíos y se ignoraron.")
     cuentas = {"cargar": len(plan["a_cargar"]), "descartadas": len(plan["descartadas"])}
@@ -1029,7 +1029,8 @@ def render_comparar(estado):
         if st.button("Comparar", type="primary", disabled=not (antes_bytes and despues), key="comparar"):
             try:
                 def no_tocada(f):       # lo que la herramienta no procesó: proveedores por asignar y, si se corrió un solo tipo, el otro tipo
-                    otro_tipo = tipo_corrido != T.TIPO_AMBOS and comparador.tipo_de_linea(f) != tipo_corrido
+                    tipo_f = comparador.tipo_de_linea(f)           # promoción (PROMO) y sin clasificar no cuentan como «el otro tipo»
+                    otro_tipo = tipo_corrido != T.TIPO_AMBOS and tipo_f in (T.TIPO_FITS, T.TIPO_GRUPOS) and tipo_f != tipo_corrido
                     return reporte_entrada.es_por_asignar(f) or otro_tipo
                 res = comparador.comparar(antes_bytes, despues.getvalue(), no_tocada=no_tocada)
                 st.session_state["_comparacion"] = res

@@ -11,18 +11,23 @@ aplica a ambos o a ninguno NO se puede clasificar: sus reservas no se procesan h
 """
 
 TIPO_FITS, TIPO_GRUPOS, TIPO_AMBOS = "FITS", "GRUPOS", "AMBOS"
-TIPOS_DE_FILA = (TIPO_FITS, TIPO_GRUPOS)
+TIPO_PROMO = "PROMO"          # viajes de promoción (Department PR): pueden ser individuales o de grupo; se procesan en cualquier modo
+TIPOS_DE_FILA = (TIPO_FITS, TIPO_GRUPOS, TIPO_PROMO)
 MODOS = (TIPO_FITS, TIPO_GRUPOS, TIPO_AMBOS)
 
 # Solo individuales / solo grupos, según Tourplan. FG («Grupos en FITS») figura como individual en Tourplan, pero son files que se
 # desprenden de un grupo y se trabajan también desde el módulo de grupos: se tratan como GRUPOS.
 DEPARTAMENTOS_FITS = frozenset({"FI", "FM", "FT", "MI", "OP", "PE", "PI", "PU"})
 DEPARTAMENTOS_GRUPOS = frozenset({"FG", "GP", "GR", "IN"})
-# Sin clasificar (no se procesan): marcados para ambos (BO, CF, FL, PR, SL, US) o para ninguno (el vacío, AC, RD).
-DEPARTAMENTOS_SIN_CLASIFICAR = frozenset({"", "AC", "BO", "CF", "FL", "PR", "RD", "SL", "US"})
+# PR («Promoción Comercial Receptivo»): viajes de promoción, tanto individuales como de grupo. No se descarta: se procesa en cualquier modo (FITS, GRUPOS
+# o AMBOS; una fila ya procesada deja de estar pendiente), con su propio filtro Department. Si tiene costos manualizados, la lista de exclusiones lo cubre.
+DEPARTAMENTOS_PROMO = frozenset({"PR"})
+# Sin clasificar (no se procesan): marcados para ambos (BO, CF, FL, SL, US) o para ninguno (el vacío, AC, RD).
+DEPARTAMENTOS_SIN_CLASIFICAR = frozenset({"", "AC", "BO", "CF", "FL", "RD", "SL", "US"})
 
 _SINONIMOS = {"FIT": TIPO_FITS, "FITS": TIPO_FITS, "INDIVIDUAL": TIPO_FITS, "INDIVIDUALES": TIPO_FITS,
-              "GRUPO": TIPO_GRUPOS, "GRUPOS": TIPO_GRUPOS, "GROUP": TIPO_GRUPOS, "GROUPS": TIPO_GRUPOS}
+              "GRUPO": TIPO_GRUPOS, "GRUPOS": TIPO_GRUPOS, "GROUP": TIPO_GRUPOS, "GROUPS": TIPO_GRUPOS,
+              "PROMO": TIPO_PROMO, "PROMOCION": TIPO_PROMO, "PROMOCIÓN": TIPO_PROMO}
 
 
 def departamento_de(referencia):
@@ -32,8 +37,10 @@ def departamento_de(referencia):
 
 
 def tipo_de_departamento(departamento):
-    """'FITS', 'GRUPOS' o None (sin clasificar)."""
+    """'FITS', 'GRUPOS', 'PROMO' o None (sin clasificar)."""
     dep = str(departamento or "").strip().upper()
+    if dep in DEPARTAMENTOS_PROMO:
+        return TIPO_PROMO
     if dep in DEPARTAMENTOS_FITS:
         return TIPO_FITS
     if dep in DEPARTAMENTOS_GRUPOS:
@@ -42,26 +49,28 @@ def tipo_de_departamento(departamento):
 
 
 def tipo_de_reserva(referencia):
-    """'FITS', 'GRUPOS' o None (Department sin clasificar) para una Reference."""
+    """'FITS', 'GRUPOS', 'PROMO' o None (Department sin clasificar) para una Reference."""
     return tipo_de_departamento(departamento_de(referencia))
 
 
 def normalizar_tipo(valor):
-    """Valor de la columna TIPO del Sheet -> 'FITS', 'GRUPOS' o '' (vacío: fila anterior a esta columna). None si no se entiende."""
+    """Valor de la columna TIPO del Sheet -> 'FITS', 'GRUPOS', 'PROMO' o '' (vacío: fila anterior a esta columna). None si no se entiende."""
     v = str(valor or "").strip().upper()
     return "" if not v else _SINONIMOS.get(v)
 
 
 def departamentos_para(tipo):
-    """Departments que se tildan en el filtro para ese tipo de fila ('' = fila sin TIPO: FITS y GRUPOS juntos, nunca los sin clasificar)."""
+    """Departments que se tildan en el filtro para ese tipo de fila ('' = fila sin TIPO: todos los clasificados juntos, nunca los sin clasificar)."""
     if tipo == TIPO_FITS:
         return DEPARTAMENTOS_FITS
     if tipo == TIPO_GRUPOS:
         return DEPARTAMENTOS_GRUPOS
-    return DEPARTAMENTOS_FITS | DEPARTAMENTOS_GRUPOS
+    if tipo == TIPO_PROMO:
+        return DEPARTAMENTOS_PROMO
+    return DEPARTAMENTOS_FITS | DEPARTAMENTOS_GRUPOS | DEPARTAMENTOS_PROMO
 
 
 def fila_corresponde(tipo_fila, modo):
-    """¿Una fila del Sheet con ese TIPO se procesa en ese modo de la app? En AMBOS, todas (también las anteriores a la columna TIPO);
-    en FITS o GRUPOS, solo las del mismo tipo."""
-    return True if modo == TIPO_AMBOS else tipo_fila == modo
+    """¿Una fila del Sheet con ese TIPO se procesa en ese modo de la app? En AMBOS, todas (también las anteriores a la columna TIPO); en FITS o GRUPOS,
+    las del mismo tipo y las de promoción (PROMO), que sirven para cualquier modo."""
+    return True if modo == TIPO_AMBOS else tipo_fila in (modo, TIPO_PROMO)

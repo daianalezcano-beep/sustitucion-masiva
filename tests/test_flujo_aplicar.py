@@ -808,14 +808,15 @@ class MainOrquestador(unittest.TestCase):
     def test_tipo_de_reservas_procesa_solo_las_filas_del_modo_y_filtra_por_department(self):
         def fila_(idx, cod, tipo):
             return {"__row_idx__": idx, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": cod, "TIPO": tipo, "ESTADO": "PENDIENTE"}
-        filas = [fila_(2, "C1", "FITS"), fila_(3, "C1", "GRUPOS"), fila_(4, "C2", ""), fila_(5, "C3", "grupo"), fila_(6, "C4", "RARO")]
+        filas = [fila_(2, "C1", "FITS"), fila_(3, "C1", "GRUPOS"), fila_(4, "C2", ""), fila_(5, "C3", "grupo"), fila_(6, "C4", "RARO"), fila_(7, "C5", "promo")]
         sd.cargar_hojas = lambda: (object(), filas, sd.COLS_INPUT + ["TIPO", "OBSERVACIONES", "TIMESTAMP"], None, None)
         vistos = []
         sd.procesar_fila_lectura = lambda d, ctx, row: (vistos.append((row["__row_idx__"], ctx["departamentos"])), ("obs", [], 1, {}))[1]
         from common import tipo_reserva as T
-        esperado = {"FITS": [(2, T.DEPARTAMENTOS_FITS)], "GRUPOS": [(3, T.DEPARTAMENTOS_GRUPOS), (5, T.DEPARTAMENTOS_GRUPOS)],
-                    "AMBOS": [(2, T.DEPARTAMENTOS_FITS), (3, T.DEPARTAMENTOS_GRUPOS), (4, T.DEPARTAMENTOS_FITS | T.DEPARTAMENTOS_GRUPOS),
-                              (5, T.DEPARTAMENTOS_GRUPOS)]}
+        promo = (7, T.DEPARTAMENTOS_PROMO)                      # promoción (PR): se procesa en cualquier modo, con su propio filtro Department
+        esperado = {"FITS": [(2, T.DEPARTAMENTOS_FITS), promo], "GRUPOS": [(3, T.DEPARTAMENTOS_GRUPOS), (5, T.DEPARTAMENTOS_GRUPOS), promo],
+                    "AMBOS": [(2, T.DEPARTAMENTOS_FITS), (3, T.DEPARTAMENTOS_GRUPOS), (4, T.DEPARTAMENTOS_FITS | T.DEPARTAMENTOS_GRUPOS | T.DEPARTAMENTOS_PROMO),
+                              (5, T.DEPARTAMENTOS_GRUPOS), promo]}
         for modo, filas_esperadas in esperado.items():
             vistos.clear()
             self.escrituras.clear()

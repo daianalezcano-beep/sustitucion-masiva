@@ -170,11 +170,11 @@ def comparar(antes, despues, no_tocada=None):
 
 
 SIN_CLASIFICAR = "SIN CLASIFICAR"
-TIPOS_DE_LINEA = (T.TIPO_FITS, T.TIPO_GRUPOS, SIN_CLASIFICAR)
+TIPOS_DE_LINEA = (T.TIPO_FITS, T.TIPO_GRUPOS, T.TIPO_PROMO, SIN_CLASIFICAR)
 
 
 def tipo_de_linea(f):
-    """'FITS', 'GRUPOS' o 'SIN CLASIFICAR' según el Department de la Reference de la línea del reporte."""
+    """'FITS', 'GRUPOS', 'PROMO' o 'SIN CLASIFICAR' según el Department de la Reference de la línea del reporte."""
     return T.tipo_de_reserva(f.get("Reference")) or SIN_CLASIFICAR
 
 

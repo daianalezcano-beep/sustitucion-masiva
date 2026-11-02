@@ -137,15 +137,15 @@ class TipoDeReserva(unittest.TestCase):
 
     def test_cada_linea_lleva_su_tipo(self):
         r = C.comparar(self.PRE.encode(), self.POST.encode())
-        self.assertEqual({x["Reference"]: x["Tipo"] for x in r["lineas"]}, {"EAFI100": "FITS", "EAGP200": "GRUPOS", "EAPR300": "SIN CLASIFICAR"})
+        self.assertEqual({x["Reference"]: x["Tipo"] for x in r["lineas"]}, {"EAFI100": "FITS", "EAGP200": "GRUPOS", "EAPR300": "PROMO"})
         self.assertIn("Tipo", C.a_csv(r["lineas"]).decode("utf-8-sig").splitlines()[0])
 
     def test_resumen_por_tipo(self):
         t = C.comparar(self.PRE.encode(), self.POST.encode())["por_tipo"]
-        self.assertEqual(list(t), ["FITS", "GRUPOS", "SIN CLASIFICAR"])
+        self.assertEqual(list(t), ["FITS", "GRUPOS", "PROMO"])
         self.assertEqual((t["FITS"]["Venta modificada"], t["FITS"]["Costo cambió"]), (0, 1))
         self.assertEqual((t["GRUPOS"]["Venta modificada"], t["GRUPOS"]["Costo cambió"]), (1, 1))         # la de venta también cambió de costo
-        self.assertEqual((t["SIN CLASIFICAR"]["Sin cambios"], t["SIN CLASIFICAR"]["Líneas"]), (1, 1))
+        self.assertEqual((t["PROMO"]["Sin cambios"], t["PROMO"]["Líneas"]), (1, 1))
 
     def test_el_otro_tipo_sirve_de_control(self):
         corrido = "FITS"
