@@ -745,6 +745,35 @@ class MainOrquestador(unittest.TestCase):
         with self.assertRaises(SystemExit):
             sd.main()
 
+    def test_las_combinaciones_con_costo_manualizado_quedan_excluidas_y_se_informan(self):
+        from common import exclusiones as X
+        lista = [{"REFERENCE": "EAGP100", "SERVICE DATE": "21/11/2026", "LOCATION": "BUE", "SERVICE TYPE": "GU", "SUPPLIER": "S1", "CODIGO": "C1",
+                  "TIPO": "GRUPOS", "VOUCHER": "555", "DESCRIPCION": "x"}]
+        filas = [{"__row_idx__": 2, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C1", "TIPO": "GRUPOS", "ESTADO": "PENDIENTE"},
+                 {"__row_idx__": 3, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C1", "TIPO": "FITS", "ESTADO": "PENDIENTE"},
+                 {"__row_idx__": 4, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C2", "TIPO": "GRUPOS", "ESTADO": "PENDIENTE"}]
+        sd.cargar_hojas = lambda: (object(), filas, sd.COLS_INPUT + ["TIPO", "OBSERVACIONES", "TIMESTAMP"], None, None)
+        guardado = sd.X.leer_del_sheet
+        sd.X.leer_del_sheet = lambda ws: lista
+        try:
+            import contextlib
+            import io
+            for modo in ("lectura", "aplicar"):
+                self.escrituras.clear()
+                sd.MODO, sd.TIPO_RESERVAS = modo, "AMBOS"
+                salida = io.StringIO()
+                with contextlib.redirect_stdout(salida):
+                    sd.main()
+                estados = {i: v.get("ESTADO") for i, v in self.escrituras if v.get("ESTADO")}
+                self.assertEqual(estados.get(2), "EXCLUIDA", modo)                                       # GRUPOS de la combinación manualizada
+                obs = next(v["OBSERVACIONES"] for i, v in self.escrituras if i == 2 and v.get("ESTADO"))
+                self.assertIn("EAGP100 21/11/2026 (voucher 555)", obs)
+                self.assertNotEqual(estados.get(3), "EXCLUIDA", modo)                                    # FITS de la misma combinación: se procesa
+                self.assertNotEqual(estados.get(4), "EXCLUIDA", modo)                                    # otra combinación: se procesa
+                self.assertIn("Excluidas por costo manualizado (revisar a mano): 1", salida.getvalue())
+        finally:
+            sd.X.leer_del_sheet = guardado
+
     def test_si_el_login_falla_no_se_hace_logout(self):
         def login_roto(d):
             raise AssertionError("Login falló")

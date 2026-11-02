@@ -29,6 +29,7 @@ import streamlit as st
 from common import comparador
 from common import logica as L
 from common import avisos
+from common import exclusiones
 from common import glosario
 from common import parametros_sheet
 from common import pre_reporte
@@ -83,6 +84,8 @@ def _refrescar_conteo(estado, sheet_url, hoja="SUBSTITUTE"):
         estado["conteo"] = E.contar_estados(filas)
         estado["pend_tipo"] = E.contar_pendientes_por_tipo(filas)
         estado["rango"] = parametros_sheet.leer_del_sheet(ws)         # fechas de los servicios (pestaña PARAMETROS); (None, None) si no hay
+        lineas_x = exclusiones.leer_del_sheet(ws)                      # lista de costos manualizados (pestaña EXCLUSIONES)
+        estado["excl_info"] = (len(lineas_x), len(exclusiones.por_combinacion(lineas_x)), exclusiones.fecha_de_carga(lineas_x)) if lineas_x else None
         estado["conteo_error"] = None
     except Exception as e:      # un fallo de refresco no debe romper la app ni una corrida en curso
         estado["conteo_error"] = str(e)
@@ -436,6 +439,9 @@ def dialogo_guia():
 previa y **Confirmar**. Nada se escribe en el Sheet hasta que confirmes. Las fechas de los servicios se guardan solas en la pestaña **PARAMETROS** del Sheet
 (*DESDE* y *HASTA*); si cargás combinaciones a mano, completalas ahí.
 
+**Costos manualizados.** Antes de aplicar, abrí *Costos manualizados (lista de exclusiones)* y subí la lista de Tourplan de servicios con Override. Las combinaciones que
+tengan alguna de esas líneas no se procesan (quedan EXCLUIDAS y se informan al final para actualizarlas a mano). La lista tiene que ser de hoy, o confirmar que no hay.
+
 **2. Elegir el modo y el tipo de reservas.** **Solo revisar** lee y muestra qué se procesaría, sin modificar nada. **Aplicar cambios** hace la sustitución real
 y modifica reservas en Tourplan. El tipo (**FITS**, **GRUPOS** o **AMBOS**) decide qué reservas se procesan en esta corrida.
 
@@ -498,6 +504,11 @@ def _cerrar_si_termino(estado):
     if estado["running"] and estado["finished"]:
         estado["running"] = False
         estado["mensaje"] = _mensaje_final(estado["returncode"], estado["modo"])
+        for linea in estado["log_lines"]:
+            m_x = re.search(r"Excluidas por costo manualizado \(revisar a mano\): (\d+)", linea)
+            if m_x:
+                nivel_x, texto_x = estado["mensaje"]
+                estado["mensaje"] = (nivel_x, texto_x + f" ⚠ {m_x.group(1)} combinación(es) excluida(s) por costo manualizado: revisalas a mano (el detalle está en la consola y en el Sheet, estado EXCLUIDA).")
         estado["aviso_cerrado"] = False
         st.session_state["_reiniciar_confirmo"] = True            # la confirmación de Aplicar vale para una sola corrida
         _refrescar_conteo(estado, _sheet_url_guardada())      # la cola está arriba: que refleje el resultado
@@ -605,6 +616,77 @@ def _seccion(numero, titulo):
     st.markdown(f'<div class="sd-seccion"><span class="sd-num">{numero}</span>{_h(titulo)}</div>', unsafe_allow_html=True)
 
 
+def _analizar_exclusiones(contenido, nombre, sheet_url):
+    """Lee la lista de costos manualizados y la cruza con las filas PENDIENTE del Sheet para mostrar el impacto antes de guardarla."""
+    lista = exclusiones.leer_lista(contenido, nombre)
+    _, filas = _leer_hoja(sheet_url)
+    por_comb = exclusiones.por_combinacion(lista["lineas"])
+    pendientes = [f for f in filas if E.clasificar_estado(f.get("ESTADO")) == "Pendiente"]
+    afectadas = [f for f in pendientes if exclusiones.lineas_que_excluyen(f, por_comb)]
+    lista["combinaciones"] = len(por_comb)
+    lista["pendientes_afectadas"] = len(afectadas)
+    lista["pendientes"] = len(pendientes)
+    return lista
+
+
+def _guardar_exclusiones(lineas, sheet_url, estado):
+    """Reemplaza la pestaña EXCLUSIONES por esta lista y actualiza lo que muestra la app."""
+    ws = conectar_sheets(sheet_url, "SUBSTITUTE", user_config.CREDENTIALS_PATH, user_config.TOKEN_PATH)
+    exclusiones.guardar_en_el_sheet(ws, lineas)
+    guardadas = exclusiones.leer_del_sheet(ws)
+    estado["excl_info"] = (len(guardadas), len(exclusiones.por_combinacion(guardadas)), exclusiones.fecha_de_carga(guardadas)) if guardadas else None
+
+
+def render_exclusiones(estado, bloqueado):
+    """Lista de servicios con costo manualizado (Override): las combinaciones que la tengan no se procesan."""
+    st.caption("Exportá de Tourplan la lista de servicios con costo manualizado (Override = Yes), con las columnas **Bkg. Reference, Srv. Date, Voucher #, Srv. Type, "
+               "Opt. Description, Override y Full option code** (CSV, TSV o Excel). Las combinaciones que tengan alguna de esas líneas **no se procesan**: quedan "
+               "EXCLUIDAS y se informan al final de la corrida para revisarlas a mano. Al guardar, la lista anterior se reemplaza.")
+    info = estado.get("excl_info")
+    if info:
+        cuando = f" (cargada el {info[2]:%d/%m/%Y %H:%M})" if info[2] else ""
+        st.markdown(f"Lista guardada en el Sheet: **{info[0]}** línea(s) en **{info[1]}** combinación(es){cuando}.")
+    else:
+        st.markdown("No hay lista guardada en el Sheet.")
+    sheet_url = _sheet_url_guardada()
+    archivo = st.file_uploader("Lista de costos manualizados", type=["csv", "tsv", "txt", "xlsx"], key="rep_excl", disabled=bloqueado,
+                               label_visibility="collapsed")
+    c1, c2, _ = st.columns([1.3, 1.3, 3])
+    if c1.button("Analizar lista", key="analizar_excl", disabled=not (archivo and sheet_url) or bloqueado):
+        try:
+            st.session_state["_analisis_excl"] = _analizar_exclusiones(archivo.getvalue(), archivo.name, sheet_url)
+        except Exception as e:
+            st.session_state["_analisis_excl"] = None
+            st.error(f"No pude leer la lista: {e}")
+    if info and c2.button("Vaciar la lista", key="vaciar_excl", type="tertiary", disabled=bloqueado, help="Borra la lista guardada en el Sheet (no hay costos manualizados)."):
+        try:
+            _guardar_exclusiones([], sheet_url, estado)
+            st.session_state["_analisis_excl"] = None
+            st.rerun()
+        except Exception as e:
+            st.error(f"No pude vaciar la lista: {e}")
+    a = st.session_state.get("_analisis_excl")
+    if not a:
+        return
+    m = st.columns(4)
+    m[0].metric("Líneas válidas", len(a["lineas"]))
+    m[1].metric("Combinaciones", a["combinaciones"])
+    m[2].metric("Pendientes que se excluirían", f"{a['pendientes_afectadas']} de {a['pendientes']}")
+    m[3].metric("Filas no válidas", len(a["invalidas"]))
+    if a["invalidas"]:
+        st.warning("Filas que no se pudieron leer (no se guardan): " + "; ".join(f"fila {n}: {motivo}" for n, motivo in a["invalidas"][:8]))
+    if a["lineas"]:
+        st.dataframe([{k: v for k, v in l.items()} for l in a["lineas"]], hide_index=True, use_container_width=True, height="content")
+    if st.button(f"✅ Guardar en el Sheet ({len(a['lineas'])} línea(s); reemplaza la lista anterior)", type="primary", key="guardar_excl", disabled=bloqueado):
+        try:
+            _guardar_exclusiones(a["lineas"], sheet_url, estado)
+            st.session_state["_analisis_excl"] = None
+            estado["aviso_carga"] = f"Lista de costos manualizados guardada: {len(a['lineas'])} línea(s) en {a['combinaciones']} combinación(es)."
+            st.rerun()
+        except Exception as e:
+            st.error(f"No pude guardar la lista en el Sheet: {e}")
+
+
 def render_cargar_reporte(estado, bloqueado):
     """Carga de combinaciones desde un reporte Service Status: vista previa y confirmación obligatoria antes de escribir en el Sheet."""
     st.caption("Subí el reporte **Service Status** exportado de Tourplan, filtrado por Location, fechas de servicio y servicio, y sin las reservas "
@@ -671,7 +753,7 @@ def _n_combinaciones(n):
     return f"{n} {'combinación' if n == 1 else 'combinaciones'}"
 
 
-def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None)):
+def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None), excl=None, sin_manuales=False):
     """Requisitos para ejecutar: ([(estado, html)] con estado 'ok' | 'no' | 'neutro', lo que falta). Solo lo obligatorio; los valores van en negrita."""
     aplicar = p["modo"] == "aplicar"
     items, faltan = [], []
@@ -697,6 +779,15 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None)):
         items.append(("ok", f"PRE adjuntado: <b>{_h(pre_nombre)}</b>") if pre_nombre else ("no", "Falta el reporte PRE (obligatorio en Aplicar)"))
         if not pre_nombre:
             faltan.append("adjuntar el reporte PRE")
+        # Costos manualizados: la lista guardada en el Sheet tiene que ser de hoy, o se confirma que no hay (el reporte de Tourplan cambia día a día).
+        if excl and excl[2] and excl[2].date() == datetime.now().date():
+            items.append(("ok", f"Costos manualizados: lista de hoy (<b>{excl[0]}</b> líneas en <b>{excl[1]}</b> combinaciones)"))
+        elif sin_manuales:
+            items.append(("ok", "Costos manualizados: <b>confirmaste que no hay</b>"))
+        else:
+            cuando = f" (la guardada es del {excl[2]:%d/%m})" if excl and excl[2] else ""
+            items.append(("no", "Falta revisar los costos manualizados" + cuando))
+            faltan.append("cargar la lista de costos manualizados de hoy (o confirmar que no hay)")
         if not confirmo:
             faltan.append("confirmar el modo Aplicar")
     return items, faltan
@@ -719,6 +810,7 @@ def render_ejecutar(estado):
         st.session_state["origen"] = "pendientes"
     if st.session_state.pop("_reiniciar_confirmo", False):          # la confirmación de Aplicar vale para una sola corrida (se pide de nuevo al terminar)
         st.session_state["confirmo"] = False
+        st.session_state["sin_manuales"] = False
     for clave, inicial in (("origen", "pendientes"), ("modo", "lectura"), ("tipo_reservas", T.TIPO_FITS)):
         st.session_state.setdefault(clave, inicial)
     aplicar = st.session_state["modo"] == "aplicar"
@@ -762,8 +854,12 @@ def render_ejecutar(estado):
              "base_url": _url_tourplan(), "fila": 0, "confirmar_ok": False, "usuario": usuario, "password": password,
              "pre_contenido": pre.getvalue() if pre else None, "tipo_reservas": tipo_reservas, "origen": origen}
 
+        if not bloqueado:
+            with st.expander("Costos manualizados (lista de exclusiones)"):
+                render_exclusiones(estado, bloqueado)
         confirmo = bool(st.session_state.get("confirmo")) if aplicar else False
-        items, faltan = _verificar_requisitos(p, pend, pre.name if pre else None, confirmo, rango)
+        sin_manuales = bool(st.session_state.get("sin_manuales")) if aplicar else False
+        items, faltan = _verificar_requisitos(p, pend, pre.name if pre else None, confirmo, rango, estado.get("excl_info"), sin_manuales)
         if not bloqueado:
             simbolo = {"ok": "✔", "no": "🔒" if aplicar else "○", "neutro": "○"}
             st.markdown('<ul class="sd-reqs">' + "".join(f'<li class="{"ok" if e == "ok" else "no"}"><span>{simbolo[e]}</span><span>{t}</span></li>'
@@ -774,6 +870,9 @@ def render_ejecutar(estado):
             for aviso in E.advertencias(p):
                 st.caption(f"⚠️ {aviso}")
         if aplicar and not bloqueado:
+            info_x = estado.get("excl_info")
+            if not (info_x and info_x[2] and info_x[2].date() == datetime.now().date()):
+                st.checkbox("Revisé los costos manualizados: **no hay servicios para excluir** (o ya cargué la lista)", key="sin_manuales")
             with st.container(key="confirmo_aplicar"):
                 st.checkbox(":red[**Entiendo que esto modifica reservas reales.**] Se va a trabajar sobre Tourplan en producción.", key="confirmo")
         errores = E.validar_parametros(p)

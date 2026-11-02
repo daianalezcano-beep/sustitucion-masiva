@@ -5,6 +5,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -413,6 +414,37 @@ class App(unittest.TestCase):
         at = self.app()
         self.assertIn("Fechas de los servicios: sin definir en la pestaña PARAMETROS", self.textos(at))
 
+    def test_costos_manualizados_lista_de_hoy_cumple_el_requisito_y_la_vieja_no(self):
+        self.configurar()
+        for fecha, ok in ((datetime.now(), True), (datetime(2026, 1, 5, 10, 0), False)):
+            at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+            at.session_state["_corrida"] = estado_falso(excl_info=(3, 2, fecha), conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
+                                                        pend_tipo={"FITS": 1, "GRUPOS": 0, "": 0})
+            at.session_state["modo"] = "aplicar"
+            at.run()
+            texto = self.textos(at)
+            self.assertEqual("Costos manualizados: lista de hoy (<b>3</b> líneas en <b>2</b> combinaciones)" in texto, ok, fecha)
+            self.assertEqual("sin_manuales" not in [c.key for c in at.checkbox], ok, fecha)              # con lista de hoy no hace falta confirmar que no hay
+
+    def test_el_resumen_de_excluidas_aparece_al_terminar(self):
+        self.configurar()
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        log = ["x\n", "[10:00:00] 📋 Excluidas por costo manualizado (revisar a mano): 2\n"]
+        at.session_state["_corrida"] = estado_falso(running=True, finished=True, log_lines=log, returncode=0, modo="aplicar")
+        with mock.patch("common.sheets_client.conectar_sheets", side_effect=RuntimeError("sin red en la prueba")):
+            at.run()
+        self.assertIn("2 combinación(es) excluida(s) por costo manualizado", self.textos(at))
+
+    def test_la_seccion_de_costos_manualizados_esta_y_se_bloquea_al_correr(self):
+        self.configurar()
+        at = self.app()
+        self.assertIn("Costos manualizados (lista de exclusiones)", [e.label for e in at.expander])
+        self.assertIn("rep_excl", [u.key for u in at.get("file_uploader")])
+        self.assertTrue(self.boton(at, "analizar_excl").disabled)                                      # sin archivo no se analiza
+        run_dir = Path(tempfile.mkdtemp())
+        at = self.app(estado_falso(running=True, run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag"))
+        self.assertNotIn("Costos manualizados (lista de exclusiones)", [e.label for e in at.expander])   # mientras corre no se toca
+
     def test_sin_configurar_no_se_puede_ejecutar(self):
         at = self.app()
         self.assertFalse(at.exception)
@@ -442,9 +474,12 @@ class App(unittest.TestCase):
         self.assertNotIn("confirmar_ok", [c.key for c in at.checkbox])
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])
         self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
-        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE · confirmar el modo Aplicar.", self.textos(at))
+        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE · cargar la lista de costos manualizados de hoy (o confirmar que no hay) · confirmar el modo Aplicar.",
+                      self.textos(at))
+        self.assertIn("sin_manuales", [c.key for c in at.checkbox])
         at.checkbox(key="confirmo").check().run()
-        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE.", self.textos(at))                # la confirmación ya no falta, el PRE sí
+        at.checkbox(key="sin_manuales").check().run()
+        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE.", self.textos(at))                # confirmación y costos manualizados listos, el PRE no
         self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
         self.elegir(at, "modo", "lectura")
         self.assertFalse(self.boton(at, "ejecutar_revision").disabled)

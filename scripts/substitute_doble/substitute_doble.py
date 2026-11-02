@@ -78,6 +78,7 @@ from selenium.webdriver.common.by import By
 from common import logica as L
 from common import tp_selenium as tp
 from common import ejecucion as E
+from common import exclusiones as X
 from common import tipo_reserva as T
 from common.reporte_entrada import CODIGO_GENERICO
 from common.abort import ABORT_EXIT_CODE, AbortadoPorUsuario, abort_solicitado, chequear_abort
@@ -1472,6 +1473,15 @@ def cargar_hojas():
     return ws, filas, columnas, ws_det, cols_det
 
 
+def imprimir_excluidas(excluidas):
+    """Resumen final de las combinaciones que no se procesaron por tener costo manualizado (la app lee la línea del encabezado)."""
+    if not excluidas:
+        return
+    print(f"\n📋 Excluidas por costo manualizado (revisar a mano): {len(excluidas)}")
+    for r_x, l_x in excluidas:
+        print(f"   - {r_x.get('LOCATION')}/{r_x.get('SUPPLIER')}/{r_x.get('SERVICE TYPE')}/{r_x.get('CODIGO')}: {X.texto_de_exclusion(l_x)}")
+
+
 def exigir_sin_pendientes(ws_det):
     """Modo aplicar: no arranca si el detalle tiene reservas a mitad de camino (corrida anterior cortada). Que no haya
     sustitutos sin asignar en los provisorios lo comprueba prechequear_provisorios, en Tourplan, antes de procesar."""
@@ -1585,6 +1595,24 @@ def main():
         unicas = [r for r in unicas if str(r["__row_idx__"]) == FILA]
         print(f"TOURPLAN_FILA={FILA}: se procesa solo esa fila ({len(unicas)} encontrada(s) PENDIENTE).")
 
+    # Costos manualizados (pestaña EXCLUSIONES del Sheet): una combinación con alguna línea manualizada del mismo tipo no se procesa; queda EXCLUIDA y se
+    # informa al final para revisarla a mano (Results no muestra el voucher: no se pueden separar las líneas de una misma combinación).
+    excluidas = []
+    try:
+        exclusiones = X.por_combinacion(X.leer_del_sheet(ws))
+    except Exception:
+        exclusiones = {}
+    if exclusiones:
+        for r in list(unicas):
+            lineas_x = X.lineas_que_excluyen(r, exclusiones)
+            if lineas_x:
+                detalle_x = X.texto_de_exclusion(lineas_x)
+                escribir_resultado_fila(ws, r["__row_idx__"], columnas, "EXCLUIDA",
+                                        f"Tiene {len(lineas_x)} línea(s) con costo manualizado, no se procesa (actualizar a mano): {detalle_x}")
+                excluidas.append((r, lineas_x))
+                unicas.remove(r)
+        print(f"Combinaciones EXCLUIDAS por costo manualizado (no se procesan): {len(excluidas)} (lista de {sum(len(v) for v in exclusiones.values())} línea(s) en EXCLUSIONES)")
+
     sin_prov = L.combinaciones_sin_provisorio(unicas, PROVISORIOS)
     print(f"\nProvisorios definidos en el código: {len(PROVISORIOS)} combinaciones Location + Service Type "
           f"(proveedor {SUPPLIER_PROVISORIO}, código {CODIGO_PROVISORIO})")
@@ -1592,6 +1620,7 @@ def main():
         print(f"⚠ Sin provisorio definido para: {sin_prov} → esas filas terminarán en ERROR en modo aplicar.")
     print(f"Filas PENDIENTE a procesar: {len(unicas)}")
     if not unicas:
+        imprimir_excluidas(excluidas)
         print("\n⛔ Sin filas PENDIENTE para procesar.")
         return
 
@@ -1664,6 +1693,7 @@ def main():
         driver.quit()
         dur = int(time.time() - t_inicio)
         m, s = divmod(dur, 60)
+        imprimir_excluidas(excluidas)
         print(f"\n🏁 Fin. Duración: {m}m {s:02d}s · filas OK={resumen['ok']} ERROR={resumen['error']} "
               f"· reservas leídas={resumen['reservas']}")
         if tiempos:
