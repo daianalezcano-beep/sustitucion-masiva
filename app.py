@@ -312,7 +312,6 @@ div:has(> .st-key-barra_corrida):not(:has(.sd-run)) { display: none; }
 .sd-cola .proc { background: var(--sd-accent-bg); border-color: var(--sd-info-line); }
 .sd-cola .ok { background: var(--sd-ok-bg); border-color: var(--sd-ok-line); }
 .sd-cola .mal { background: var(--sd-danger-bg); border-color: var(--sd-danger-line); } .sd-cola .mal .n { color: var(--sd-danger); }
-.sd-prog { margin: 10px 0 8px; } .sd-prog-t { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
 /* columna derecha pegada al hacer scroll; en pantallas angostas pasa arriba del contenido */
 div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 12px; align-self: flex-start; max-height: calc(100vh - 24px); overflow-y: auto; }
 @media (max-width: 1000px) {
@@ -682,12 +681,11 @@ def render_cola(estado, sheet_url):
     if por_cargar:
         nota = f"+{por_cargar} al confirmar la carga del reporte"      # el análisis no escribe en el Sheet: sumá cuando se confirma
     st.markdown(f'<p class="sd-cola-titulo">Cola de trabajo</p><p class="sd-nota">{nota}</p>', unsafe_allow_html=True)
-    hechas, total = _progreso(estado["log_lines"])
-    procesadas = max(hechas - 1, 0) if estado["running"] else hechas
     if estado["conteo_error"]:
         st.error(f"No pude leer el Sheet: {estado['conteo_error']}")
     elif estado["conteo"]:
         c = estado["conteo"]
+        hechas, _ = _progreso(estado["log_lines"])
         en_proceso = 1 if (estado["running"] and hechas >= 1 and c["Pendiente"] >= 1) else 0     # la combinación en curso sigue PENDIENTE en el Sheet: se cuenta acá y no en Pendiente
         items = [("pend", "Pendiente", c["Pendiente"] - en_proceso, glosario.COLA["Pendiente"]),
                  ("proc", "En proceso", en_proceso, "La combinación que se está procesando ahora (en el Sheet sigue PENDIENTE hasta que termina)."),
@@ -698,20 +696,6 @@ def render_cola(estado, sheet_url):
         st.markdown(f'<div class="sd-nota" style="margin-top:6px !important">Duplicado: {c["Duplicado"]} · Otro: {c["Otro"]}</div>', unsafe_allow_html=True)
     else:
         st.caption("Tocá Refrescar para ver cuántas filas hay Pendientes, OK o con Error.")
-    # Progreso de la corrida
-    if estado["running"] or estado["mensaje"]:
-        pct = int(min(procesadas, total) / total * 100) if total else 0
-        if estado["running"]:
-            restante = E.estimar_restante(estado.get("t_primera"), procesadas, total, time.time(), minimo=1)
-            detalle = (f"Tiempo restante estimado: ≈ {reporte_entrada.texto_duracion(restante)}" if restante is not None else "Tiempo restante estimado: calculando…")
-        else:
-            dur = resultado.resumir_corrida(estado["log_lines"])["duracion"]
-            detalle = f"Duró {dur}" if dur else "Corrida terminada"
-        st.markdown(f'<div class="sd-prog"><div class="sd-prog-t"><span>{min(procesadas, total) if total else 0}/{total} procesadas</span><b>{pct} %</b></div>'
-                    f'<div class="sd-barra {"apl" if estado["modo"] == "aplicar" else ""}"><i style="width:{pct}%"></i></div>'
-                    f'<div class="sd-nota">{detalle}</div></div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="sd-nota" style="margin:8px 0 !important">Sin corrida en curso</div>', unsafe_allow_html=True)
     b1, b2 = st.columns(2)
     if b1.button("🔄 Refrescar", disabled=estado["running"] or not sheet_url, use_container_width=True, key="refrescar"):
         _refrescar_conteo(estado, sheet_url)
