@@ -24,7 +24,7 @@ cancelados no entran en la corrida.
 ## Costos manualizados
 Antes de aplicar, **pegá en la pestaña EXCLUSIONES del Sheet** la tabla de Tourplan de servicios con Override (tal cual, con sus encabezados): la app no permite adjuntarla. Las líneas que coincidan (reserva + fecha + código)
 no se procesan y el resto de la combinación sí; si hay más líneas iguales en Tourplan que en la lista, se excluyen todas. Al terminar, la app informa cuáles y por qué (también en la consola y en
-SUBSTITUTE_DETALLE) para que las actualices a mano. Antes de aplicar, en la sección *Costos manualizados* tildá que la lista está actualizada; **si no hay costos manualizados, dejá la pestaña vacía y tildá «No hay costos manualizados»** (la corrida ignora cualquier lista vieja que haya quedado en el Sheet). Conviene probarlo primero en modo **Solo revisar**.
+SUBSTITUTE_DETALLE) para que las actualices a mano. En la fila **Costos manualizados** (solo aparece en modo Aplicar) elegí **Hay** si pegaste la lista, o **No hay** si no hay costos manualizados (en ese caso la corrida ignora cualquier lista vieja que haya quedado en la pestaña). Es obligatorio elegir una. Conviene probarlo primero en modo **Solo revisar**.
 
 ## Después
 1. Exportá el reporte **"después"** con las mismas opciones que el "antes".

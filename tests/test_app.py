@@ -418,63 +418,49 @@ class App(unittest.TestCase):
         at.session_state["_req_detalle"] = True; at.run()
         self.assertIn("Fechas de los servicios: sin definir en la pestaña PARAMETROS", self.textos(at))
 
-    def test_costos_manualizados_lista_de_hoy_cumple_el_requisito_y_la_vieja_no(self):
+    def _aplicar_con_lista(self, excl_info, eleccion=None):
         self.configurar()
-        for fecha, ok in ((datetime.now(), True), (datetime(2026, 1, 5, 10, 0), False)):
-            at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
-            at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
-            at.session_state["_corrida"] = estado_falso(excl_info=(3, 2, fecha), conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
-                                                        pend_tipo={"FITS": 1, "GRUPOS": 0, "": 0})
-            at.session_state["modo"] = "aplicar"
-            at.run()
-            texto = self.textos(at)
-            self.assertEqual("Costos manualizados: lista de hoy (<b>3</b> líneas en <b>2</b> combinaciones)" in texto, ok, fecha)
-            self.assertEqual("sin_manuales" not in [c.key for c in at.checkbox], ok, fecha)              # con lista de hoy no hace falta confirmar que no hay
-
-    def test_sin_costos_manualizados_se_tilda_la_confirmacion_y_el_script_ignora_la_lista_vieja(self):
-        self.configurar()
-        lista_vieja = (3, 2, datetime(2026, 1, 5, 10, 0))                                         # guardada en el Sheet hace tiempo
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
-        at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
-        at.session_state["_corrida"] = estado_falso(excl_info=lista_vieja, conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
-                                                    pend_tipo={"FITS": 1, "GRUPOS": 0, "": 0})
+        at.session_state["_req_detalle"] = True                                                       # detalle de requisitos desplegado
+        at.session_state["_corrida"] = estado_falso(excl_info=excl_info, conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
+                                                    pend_tipo={"FITS": 1, "GRUPOS": 0, "PROMO": 0, "": 0})
         at.session_state["modo"] = "aplicar"
-        at.run()
-        self.assertIn("sin_manuales", [c.key for c in at.checkbox])                              # no hace falta adjuntar nada: alcanza con tildar
-        self.assertIn("Costos manualizados: pegá la lista en la pestaña EXCLUSIONES o tildá «no hay» (sección Costos manualizados)", self.textos(at))
-        at.checkbox(key="sin_manuales").check().run()
-        self.assertIn("Costos manualizados: <b>confirmaste que no hay</b> (no se usa ninguna lista)", self.textos(at))
+        if eleccion:
+            at.session_state["costos_manualizados"] = eleccion
+        return at.run()
+
+    def test_costos_manualizados_hay_o_no_hay_sin_eleccion_inicial(self):
+        at = self._aplicar_con_lista((3, 2, None, 0))
+        self.assertIn("costos_manualizados", [g.key for g in at.get("button_group")])
+        self.assertIsNone(at.session_state["costos_manualizados"])                                    # sin opción elegida: el requisito queda pendiente
+        self.assertIn("Costos manualizados: indicá «Hay» o «No hay»", self.textos(at))
+        self.assertIn("🔒 Costos manualizados", self.textos(at))
+        self.assertNotIn("sin_manuales", [c.key for c in at.checkbox])                                # ya no hay casillas
+        self.assertNotIn("lista_actualizada", [c.key for c in at.checkbox])
+
+    def test_hay_refleja_la_cantidad_de_lineas_de_la_pestana(self):
+        at = self._aplicar_con_lista((3, 2, None, 0), "hay")
+        self.assertIn("Costos manualizados: <b>hay lista en EXCLUSIONES</b> (3 líneas en 2 combinaciones)", self.textos(at))
+        self.assertIn("En el Sheet: <b>3</b> línea(s) en <b>2</b> combinación(es)", self.textos(at))
+
+    def test_hay_con_la_pestana_vacia_no_cumple_el_requisito(self):
+        at = self._aplicar_con_lista(None, "hay")
+        self.assertIn("la pestaña EXCLUSIONES está vacía", self.textos(at) + " ".join(w.value for w in at.warning))
+        self.assertIn("🔒 Costos manualizados", self.textos(at))
+
+    def test_no_hay_cumple_y_el_script_ignora_la_lista(self):
+        at = self._aplicar_con_lista((3, 2, None, 0), "no_hay")
+        self.assertIn("Costos manualizados: <b>no hay</b>", self.textos(at))
+        self.assertIn("con «No hay» se ignoran", " ".join(w.value for w in at.warning))                # avisa que la pestaña tiene líneas
         from common import ejecucion as E
         p = {"usuario": "u", "password": "p", "sheet_url": "x", "base_url": "https://t", "modo": "aplicar", "desde": datetime(2026, 11, 3).date(),
              "hasta": datetime(2049, 12, 31).date(), "fila": 0, "sin_exclusiones": True}
         self.assertEqual(E.armar_entorno(p, {}, "/r", "/r/run", "/r/s", "/r/stop", "/c", "/t")["TOURPLAN_SIN_EXCLUSIONES"], "1")
         self.assertEqual(E.armar_entorno(dict(p, sin_exclusiones=False), {}, "/r", "/r/run", "/r/s", "/r/stop", "/c", "/t")["TOURPLAN_SIN_EXCLUSIONES"], "0")
 
-    def test_la_casilla_no_hay_costos_manualizados_esta_en_la_seccion_de_costos_manualizados(self):
-        self.configurar()
-        at = self.app()
-        self.elegir(at, "modo", "aplicar")
-        seccion = next(e for e in at.expander if e.label == "Costos manualizados (lista de exclusiones)")
-        self.assertIn("sin_manuales", [c.key for c in self._aplanar(seccion) if getattr(c, "key", None)])
-        fuera = [c.key for c in at.checkbox if c.key == "sin_manuales" and c not in list(self._aplanar(seccion))]
-        self.assertEqual(fuera, [])                                                                    # y no suelta en la tarjeta
-
-    def test_lista_pegada_a_mano_en_el_sheet_pide_confirmar_que_esta_actualizada(self):
-        self.configurar()
-        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
-        at.session_state["_req_detalle"] = True                                          # detalle de requisitos desplegado
-        at.session_state["_corrida"] = estado_falso(excl_info=(4, 3, None, 1), conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
-                                                    pend_tipo={"FITS": 1, "GRUPOS": 0, "PROMO": 0, "": 0})
-        at.session_state["modo"] = "aplicar"
-        at.run()
-        self.assertIn("lista_actualizada", [c.key for c in at.checkbox])
-        self.assertIn("Costos manualizados: confirmá que la lista de la pestaña EXCLUSIONES está actualizada", self.textos(at))
-        self.assertIn("pegada a mano: sin fecha de carga", self.textos(at))
+    def test_filas_ilegibles_de_la_lista_se_avisan(self):
+        at = self._aplicar_con_lista((4, 3, None, 1), "hay")
         self.assertIn("1 fila(s) de la pestaña EXCLUSIONES no se pueden leer", " ".join(w.value for w in at.warning))
-        at.checkbox(key="lista_actualizada").check().run()
-        self.assertIn("confirmada como actualizada", self.textos(at))
-        self.assertNotIn("Falta revisar", self.textos(at))
-        self.assertNotIn("costos manualizados: confirmar que la lista", self.textos(at))               # ya no falta
 
     def test_el_resumen_de_excluidas_aparece_al_terminar(self):
         self.configurar()
@@ -509,14 +495,16 @@ class App(unittest.TestCase):
             at.run()
         self.assertIn("Esto es lo que va a pasar", self.textos(at))
 
-    def test_la_seccion_de_costos_manualizados_esta_y_se_bloquea_al_correr(self):
+    def test_costos_manualizados_solo_en_aplicar_y_se_bloquea_al_correr(self):
         self.configurar()
         at = self.app()
-        self.assertIn("Costos manualizados (lista de exclusiones)", [e.label for e in at.expander])
+        self.assertNotIn("costos_manualizados", [g.key for g in at.get("button_group")])               # en revisión no se pide
         self.assertNotIn("rep_excl", [u.key for u in at.get("file_uploader")])                          # la lista se pega en el Sheet: no se adjunta
+        self.elegir(at, "modo", "aplicar")
+        self.assertIn("costos_manualizados", [g.key for g in at.get("button_group")])
         run_dir = Path(tempfile.mkdtemp())
         at = self.app(estado_falso(running=True, run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag"))
-        self.assertNotIn("Costos manualizados (lista de exclusiones)", [e.label for e in at.expander])   # mientras corre no se toca
+        self.assertNotIn("costos_manualizados", [g.key for g in at.get("button_group")])               # mientras corre no se toca
 
     def test_por_defecto_no_se_separa_por_tipo_y_se_procesa_todo(self):
         self.configurar(separar=False)
@@ -593,9 +581,8 @@ class App(unittest.TestCase):
             self.assertIn(pastilla, t)
         self.assertNotIn("Para ejecutar falta", t)                                                      # ya no hay mensaje rojo duplicado bajo el botón
         self.assertIn("Requisitos <b>3 de 6</b>", t)
-        self.assertIn("sin_manuales", [c.key for c in at.checkbox])
         at.checkbox(key="confirmo").check().run()
-        at.checkbox(key="sin_manuales").check().run()
+        self.elegir(at, "costos_manualizados", "no_hay")
         t = self.textos(at)
         self.assertIn("🔒 Falta el PRE", t)                                                             # confirmación y costos manualizados listos, el PRE no
         self.assertNotIn("🔒 Confirmación", t)

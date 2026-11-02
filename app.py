@@ -370,6 +370,12 @@ div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 
 .sd-reqs b { font-weight: 700; }
 .sd-reqs .ok { color: var(--sd-ok); } .sd-reqs .no { color: var(--sd-muted); }
 .st-key-tarjeta_aplicar .sd-reqs .no { color: var(--sd-danger); }
+.st-key-costos_manualizados { width: 100% !important; margin-bottom: 0; }
+.st-key-costos_manualizados [role="radiogroup"] { display: flex !important; width: 100%; gap: 0 !important; border: 1.5px solid var(--sd-line2); border-radius: 8px; overflow: hidden; background: var(--sd-surface); }
+.st-key-costos_manualizados button { flex: 1; min-height: 34px; border: 0 !important; border-left: 1px solid var(--sd-line2) !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; }
+.st-key-costos_manualizados button:first-child { border-left: 0 !important; }
+.st-key-costos_manualizados button[aria-checked="true"] { background: var(--sd-accent) !important; }
+.st-key-costos_manualizados button[aria-checked="true"] * { color: var(--sd-on-accent) !important; font-weight: 600; }
 .sd-reqc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 14px; }
 .sd-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 99px; font-size: 13px; font-weight: 600; border: 1px solid; }
 .sd-pill.mal { color: var(--sd-danger); background: var(--sd-danger-bg); border-color: var(--sd-danger-line); }
@@ -466,8 +472,8 @@ def dialogo_guia():
 previa y **Confirmar**. Nada se escribe en el Sheet hasta que confirmes. Las fechas de los servicios se guardan solas en la pestaña **PARAMETROS** del Sheet
 (*DESDE* y *HASTA*); si cargás combinaciones a mano, completalas ahí.
 
-**Costos manualizados.** Antes de aplicar, pegá en la pestaña *EXCLUSIONES* del Sheet la lista de Tourplan de servicios con Override (tal cual, con sus encabezados). Las líneas que coincidan
-(reserva + fecha + código) no se procesan, y el resto de la combinación sí. Se informan al final con su motivo para actualizarlas a mano. Hay que confirmar que la lista está actualizada, o que no hay.
+**Costos manualizados.** Antes de aplicar, pegá en la pestaña *EXCLUSIONES* del Sheet la lista de Tourplan de servicios con Override (tal cual, con sus encabezados) y, en la fila *Costos manualizados*, elegí **Hay**; si no hay ninguno, elegí **No hay**. Las líneas que coincidan
+(reserva + fecha + código) no se procesan, y el resto de la combinación sí. Se informan al final con su motivo para actualizarlas a mano. Hay que elegir Hay o No hay (es obligatorio en Aplicar).
 
 **2. Elegir el modo.** **Solo revisar** lee y muestra qué se procesaría, sin modificar nada. **Aplicar cambios** hace la sustitución real
 y modifica reservas en Tourplan. Se procesan todas las reservas juntas (si en la configuración activaste *Separar por tipo*, también elegís cuáles:
@@ -719,26 +725,27 @@ def _seccion(numero, titulo):
     st.markdown(f'<div class="sd-seccion"><span class="sd-num">{numero}</span>{_h(titulo)}</div>', unsafe_allow_html=True)
 
 
-def render_exclusiones(estado, bloqueado, aplicar=False):
-    """Lista de servicios con costo manualizado (Override): las combinaciones que la tengan no se procesan."""
-    st.caption("Pegá en la pestaña **EXCLUSIONES** del Sheet la tabla de Tourplan de servicios con costo manualizado (Override = Yes), tal cual, con sus encabezados "
-               "(**Bkg. Reference, Srv. Date, Voucher #, Srv. Type, Opt. Description, Override y Full option code**). En cada combinación, las líneas que coincidan "
-               "(reserva + fecha + código) **no se procesan**; las demás sí. Si en Tourplan hay más líneas iguales que en la lista, se excluyen todas. Se informan al "
-               "final de la corrida con su motivo para revisarlas a mano. Si no hay costos manualizados, dejá la pestaña vacía.")
+def render_exclusiones(estado, bloqueado):
+    """Fila «Costos manualizados» (solo en Aplicar): Hay / No hay. «Hay» = la lista está pegada en la pestaña EXCLUSIONES del Sheet y se usa; «No hay» = el script ignora
+    esa pestaña. Sin opción elegida, el requisito queda pendiente."""
     info = estado.get("excl_info")
-    lista_de_hoy = bool(info and info[2] and info[2].date() == datetime.now().date())
-    if aplicar and not lista_de_hoy:      # sin lista de hoy, en Aplicar se confirma acá que no hay costos manualizados (no hace falta cargar nada)
-        st.checkbox("**No hay costos manualizados** para excluir en esta corrida (no hace falta pegar ninguna lista)", key="sin_manuales", disabled=bloqueado)
-    pegada = bool(info and not info[2])          # tabla pegada a mano en la pestaña: no tiene fecha de carga
-    if aplicar and pegada:
-        st.checkbox("**La lista de la pestaña EXCLUSIONES está actualizada** (la copié hoy desde Tourplan)", key="lista_actualizada", disabled=bloqueado)
-    if info:
-        cuando = f" (cargada el {info[2]:%d/%m/%Y %H:%M})" if info[2] else " (pegada a mano: sin fecha de carga)"
-        st.markdown(f"Lista en el Sheet: **{info[0]}** línea(s) en **{info[1]}** combinación(es){cuando}.")
-        if len(info) > 3 and info[3]:
-            st.warning(f"{info[3]} fila(s) de la pestaña EXCLUSIONES no se pueden leer y no se tienen en cuenta (revisá que tengan referencia, fecha y código completo válidos).")
-    else:
-        st.markdown("La pestaña EXCLUSIONES del Sheet está vacía.")
+    c_lab, c_ctl, c_txt = st.columns([1.5, 1.6, 5], vertical_alignment="center", gap="small")
+    c_lab.markdown('<div class="sd-glab" style="margin:0">Costos manualizados</div>', unsafe_allow_html=True)
+    with c_ctl:
+        eleccion = st.segmented_control("Costos manualizados", ["hay", "no_hay"], key="costos_manualizados", default=None, required=False, disabled=bloqueado,
+                                        label_visibility="collapsed", width="stretch", format_func=lambda k: "Hay" if k == "hay" else "No hay")
+    c_txt.markdown('<div class="sd-nota" style="line-height:1.4">Hay: pegué la lista en la pestaña EXCLUSIONES del Sheet. Las líneas con costo manualizado quedan excluidas de la corrida.</div>',
+                   unsafe_allow_html=True)
+    if eleccion == "hay":
+        if info and info[0]:
+            st.markdown(f'<div class="sd-nota">En el Sheet: <b>{info[0]}</b> línea(s) en <b>{info[1]}</b> combinación(es). Se informan al final de la corrida con su motivo.</div>',
+                        unsafe_allow_html=True)
+        else:
+            st.warning("La pestaña EXCLUSIONES del Sheet está vacía: pegá ahí la tabla de Tourplan (con sus encabezados) o elegí «No hay».")
+    elif eleccion == "no_hay" and info and info[0]:
+        st.warning(f"La pestaña EXCLUSIONES tiene {info[0]} línea(s): con «No hay» se ignoran y esas reservas se procesan igual.")
+    if info and len(info) > 3 and info[3]:
+        st.warning(f"{info[3]} fila(s) de la pestaña EXCLUSIONES no se pueden leer y no se tienen en cuenta (revisá que tengan referencia, fecha y código completo válidos).")
 
 
 def render_cargar_reporte(estado, bloqueado):
@@ -833,22 +840,17 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None), exc
         items.append(("ok", f"PRE adjuntado: <b>{_h(pre_nombre)}</b>") if pre_nombre else ("no", "Falta el reporte PRE (obligatorio en Aplicar)"))
         if not pre_nombre:
             faltan.append("adjuntar el reporte PRE")
-        # Costos manualizados: la lista guardada en el Sheet tiene que ser de hoy, o se confirma que no hay (el reporte de Tourplan cambia día a día).
-        if excl and excl[2] and excl[2].date() == datetime.now().date():
-            items.append(("ok", f"Costos manualizados: lista de hoy (<b>{excl[0]}</b> líneas en <b>{excl[1]}</b> combinaciones)"))
-        elif excl and not excl[2] and lista_actualizada:
-            items.append(("ok", f"Costos manualizados: lista de la pestaña EXCLUSIONES (<b>{excl[0]}</b> líneas en <b>{excl[1]}</b> combinaciones), <b>confirmada como actualizada</b>"))
-        elif sin_manuales:
-            items.append(("ok", "Costos manualizados: <b>confirmaste que no hay</b> (no se usa ninguna lista)"))
+        # Costos manualizados: hay que elegir «Hay» (la lista está pegada en la pestaña EXCLUSIONES) o «No hay».
+        if sin_manuales:
+            items.append(("ok", "Costos manualizados: <b>no hay</b>"))
+        elif lista_actualizada and excl and excl[0]:
+            items.append(("ok", f"Costos manualizados: <b>hay lista en EXCLUSIONES</b> ({excl[0]} líneas en {excl[1]} combinaciones)"))
+        elif lista_actualizada:
+            items.append(("no", "Costos manualizados: elegiste «Hay» pero la pestaña EXCLUSIONES está vacía (pegá la lista o elegí «No hay»)"))
+            faltan.append("costos manualizados: pegar la lista en la pestaña EXCLUSIONES o elegir «No hay»")
         else:
-            if excl and not excl[2]:
-                items.append(("no", "Costos manualizados: confirmá que la lista de la pestaña EXCLUSIONES está actualizada, o tildá «no hay» (sección Costos manualizados)"))
-                faltan.append("costos manualizados: confirmar que la lista de la pestaña EXCLUSIONES está actualizada, o tildar «no hay costos manualizados» "
-                              "(en la sección Costos manualizados)")
-            else:
-                cuando = f" (la guardada es del {excl[2]:%d/%m})" if excl and excl[2] else ""
-                items.append(("no", "Costos manualizados: pegá la lista en la pestaña EXCLUSIONES o tildá «no hay» (sección Costos manualizados)" + cuando))
-                faltan.append("costos manualizados: pegar la lista en la pestaña EXCLUSIONES o tildar «no hay costos manualizados» (en la sección Costos manualizados)")
+            items.append(("no", "Costos manualizados: indicá «Hay» o «No hay»"))
+            faltan.append("costos manualizados: indicar «Hay» o «No hay»")
         if not confirmo:
             faltan.append("confirmar el modo Aplicar")
     return items, faltan
@@ -909,8 +911,7 @@ def render_ejecutar(estado):
         st.session_state["origen"] = "pendientes"
     if st.session_state.pop("_reiniciar_confirmo", False):          # la confirmación de Aplicar vale para una sola corrida (se pide de nuevo al terminar)
         st.session_state["confirmo"] = False
-        st.session_state["sin_manuales"] = False
-        st.session_state["lista_actualizada"] = False
+        st.session_state["costos_manualizados"] = None
     for clave, inicial in (("origen", "pendientes"), ("modo", "lectura"), ("tipo_reservas", T.TIPO_FITS)):
         st.session_state.setdefault(clave, inicial)
     aplicar = st.session_state["modo"] == "aplicar"
@@ -958,17 +959,14 @@ def render_ejecutar(estado):
              "base_url": _url_tourplan(), "fila": 0, "confirmar_ok": False, "usuario": usuario, "password": password,
              "pre_contenido": pre.getvalue() if pre else None, "tipo_reservas": tipo_reservas, "origen": origen,
              "separar_tipo": separar}
-        info_x0 = estado.get("excl_info")
-        lista_de_hoy = bool(info_x0 and info_x0[2] and info_x0[2].date() == datetime.now().date())
-        pegada_ok = bool(info_x0 and not info_x0[2] and st.session_state.get("lista_actualizada"))                  # tabla pegada a mano y confirmada
-        p["sin_exclusiones"] = bool(aplicar and st.session_state.get("sin_manuales") and not lista_de_hoy and not pegada_ok)   # «no hay»: se ignora una lista vieja del Sheet
+        costos = st.session_state.get("costos_manualizados") if aplicar else None
+        p["sin_exclusiones"] = bool(costos == "no_hay")             # «No hay»: el script ignora la pestaña EXCLUSIONES aunque tenga una lista
 
-        if not bloqueado:
-            with st.expander("Costos manualizados (lista de exclusiones)"):
-                render_exclusiones(estado, bloqueado, aplicar)
+        if aplicar and not bloqueado:
+            render_exclusiones(estado, bloqueado)
         confirmo = bool(st.session_state.get("confirmo")) if aplicar else False
-        sin_manuales = bool(st.session_state.get("sin_manuales")) if aplicar else False
-        lista_actualizada = bool(st.session_state.get("lista_actualizada")) if aplicar else False
+        costos = st.session_state.get("costos_manualizados") if aplicar else None
+        sin_manuales, lista_actualizada = costos == "no_hay", costos == "hay"
         items, faltan = _verificar_requisitos(p, pend, pre.name if pre else None, confirmo, rango, estado.get("excl_info"), sin_manuales, lista_actualizada)
         if not bloqueado:
             hechos, total_req, pastillas = _resumen_requisitos(p, items, faltan)
