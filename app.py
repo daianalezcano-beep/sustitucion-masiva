@@ -28,6 +28,9 @@ import streamlit as st
 
 from common import comparador
 from common import logica as L
+from common import avisos
+from common import glosario
+from common import parametros_sheet
 from common import pre_reporte
 from common import reporte_entrada
 from common import tipo_reserva as T
@@ -79,6 +82,7 @@ def _refrescar_conteo(estado, sheet_url, hoja="SUBSTITUTE"):
         filas = [L.canonizar_fila(f, COLS_HOJA) for f in filas]
         estado["conteo"] = E.contar_estados(filas)
         estado["pend_tipo"] = E.contar_pendientes_por_tipo(filas)
+        estado["rango"] = parametros_sheet.leer_del_sheet(ws)         # fechas de los servicios (pestaña PARAMETROS); (None, None) si no hay
         estado["conteo_error"] = None
     except Exception as e:      # un fallo de refresco no debe romper la app ni una corrida en curso
         estado["conteo_error"] = str(e)
@@ -137,7 +141,7 @@ def lanzar(estado, p):
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace", bufsize=1)
     estado.update({"running": True, "finished": False, "log_lines": [], "returncode": None, "proc": proc,
-                   "stop_file": stop_file, "run_dir": run_dir, "abort_pedido": False, "aviso_cerrado": False, "modo": p["modo"],
+                   "stop_file": stop_file, "run_dir": run_dir, "abort_pedido": False, "aviso_cerrado": False, "t_primera": None, "modo": p["modo"],
                    "inicio": time.time(), "mensaje": None})
     threading.Thread(target=_leer_proceso, args=(proc, estado), daemon=True).start()
 
@@ -206,7 +210,17 @@ def _cargar_a_la_hoja(plan, sheet_url):
     nuevas = [f for f in reporte_entrada.filas_para_hoja(plan["a_cargar"])
               if L.clave_fila(f) not in ya and L.clave_fila(f)[:4] + ("",) not in ya]
     asegurar_columnas_tolerante(ws, COLS_HOJA)
-    return agregar_filas_batch(ws, ws.row_values(1), nuevas)
+    n = agregar_filas_batch(ws, ws.row_values(1), nuevas)
+    # Fechas de los servicios: las del reporte (primer y último servicio de lo cargado). Si ya había pendientes se amplía el rango anterior.
+    hay_pendientes = any(E.clasificar_estado(f.get("ESTADO")) == "Pendiente" for f in filas)
+    try:
+        nuevo = parametros_sheet.rango_del_plan([f for f in plan["a_cargar"]])
+        desde, hasta = parametros_sheet.fusionar(parametros_sheet.leer_del_sheet(ws), nuevo, hay_pendientes)
+        if desde and hasta:
+            parametros_sheet.escribir_en_el_sheet(ws, desde, hasta)
+    except Exception:      # no poder guardar las fechas no debe perder la carga ya hecha: se avisa en la pantalla y se pueden escribir a mano
+        st.session_state["_aviso_rango"] = True
+    return n
 
 
 
@@ -254,7 +268,7 @@ header[data-testid="stHeader"], [data-testid="stToolbar"] { background: transpar
 .sd-chip b { color: var(--sd-ink); font-weight: 700; }
 .sd-chip.mal b { color: inherit; }
 .sd-chip.mal { color: var(--sd-danger); background: var(--sd-danger-bg); border-color: var(--sd-danger-line); }
-.st-key-btn_config button { transform: translateY(6px); width: 36px; height: 36px; min-height: 36px; border-radius: 50%; font-size: 16px; padding: 0; }
+.st-key-btn_guia button, .st-key-btn_config button { transform: translateY(6px); width: 36px; height: 36px; min-height: 36px; border-radius: 50%; font-size: 16px; padding: 0; }
 
 /* insignias */
 .sd-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 600;
@@ -406,11 +420,39 @@ def dialogo_configuracion():
                                help="Viene con producción. Cambiala solo si querés probar a propósito contra otro ambiente (test).")
         headless = st.checkbox("Correr sin ventana de Chrome visible (no recomendado: no vas a poder mirar el modal)",
                                value=bool(cfg.get("headless", False)))
+        con_avisos = st.checkbox("Avisarme al terminar una corrida (notificación de escritorio y sonido)", value=bool(cfg.get("avisos", True)))
         if st.form_submit_button("Guardar", type="primary"):
-            cfg.update({"tp_usuario": usuario, "tp_password": password, "headless": headless, "tp_base_url": url_tp.strip()})
+            cfg.update({"tp_usuario": usuario, "tp_password": password, "headless": headless, "tp_base_url": url_tp.strip(), "avisos": con_avisos})
             cfg.setdefault("sheet_urls", {})[CLAVE_SHEET] = sheet
             user_config.guardar(cfg)
             st.rerun()
+
+
+@st.dialog("Cómo se usa", width="large")
+def dialogo_guia():
+    st.markdown("""
+**1. Cargar las combinaciones.** En *Combinaciones a procesar* elegí **Pendientes** (lo que ya está en el Sheet) o **Reporte nuevo**: subí el reporte
+*Service Status* de Tourplan (filtrado por Location, fechas de servicio y servicio, sin las reservas CX-Cancelled), tocá **Analizar reporte**, revisá la vista
+previa y **Confirmar**. Nada se escribe en el Sheet hasta que confirmes. Las fechas de los servicios se guardan solas en la pestaña **PARAMETROS** del Sheet
+(*DESDE* y *HASTA*); si cargás combinaciones a mano, completalas ahí.
+
+**2. Elegir el modo y el tipo de reservas.** **Solo revisar** lee y muestra qué se procesaría, sin modificar nada. **Aplicar cambios** hace la sustitución real
+y modifica reservas en Tourplan. El tipo (**FITS**, **GRUPOS** o **AMBOS**) decide qué reservas se procesan en esta corrida.
+
+**3. Adjuntar el PRE (solo en Aplicar).** Es el reporte *Product Analysis* exportado de Tourplan **antes** de ejecutar, con las mismas fechas y filtros. La app
+verifica que cubra todo lo que se va a procesar y lo guarda para compararlo después.
+
+**4. Ejecutar.** El botón se habilita cuando están los obligatorios. En Aplicar, tildá la confirmación. Mientras corre, no toques la ventana de Chrome. Arriba ves
+el avance y el tiempo restante estimado; podés abortar (termina la combinación en curso). Al terminar, la app avisa con una notificación y un sonido.
+
+**5. Comparar.** Exportá el reporte *Product Analysis* **después** y, en la pestaña **Comparar reportes**, subilo: la app lo compara con el PRE y marca si cambió la
+venta. Las líneas con venta modificada son las que hay que corregir en Tourplan.
+""")
+    with st.expander("Qué significa cada estado"):
+        st.markdown("**Cola de trabajo**\n\n" + glosario.markdown_cola())
+        st.markdown("**Estados en la columna ESTADO del Sheet**\n\n" + glosario.markdown_estados())
+    with st.expander("Qué significa cada resultado de la comparación"):
+        st.markdown(glosario.markdown_comparacion())
 
 
 def _url_tourplan():
@@ -420,7 +462,7 @@ def _url_tourplan():
 
 def render_encabezado():
     usuario, _ = user_config.tp_credenciales_default()
-    c1, c2, c3 = st.columns([5.2, 4.6, 0.45], vertical_alignment="center")
+    c1, c2, c3, c4 = st.columns([5.2, 4.2, 0.45, 0.45], vertical_alignment="center")
     c1.markdown('<p class="sd-titulo">Actualización de costos</p><p class="sd-subtitulo">mediante sustitución de servicios</p>',
                 unsafe_allow_html=True)
     if usuario:
@@ -432,7 +474,9 @@ def render_encabezado():
     chips += ('<span class="sd-chip">Tourplan: <b>producción</b></span>' if url.rstrip("/") == PRODUCCION_URL
               else f'<span class="sd-chip mal">⚠ Tourplan: <b>{_h(url)}</b></span>')
     c2.markdown(f'<div class="sd-chips">{chips}</div>', unsafe_allow_html=True)
-    if c3.button("⚙️", key="btn_config", help="Configuración (usuario de Tourplan, Sheet, URL de Tourplan)"):
+    if c3.button("?", key="btn_guia", help="Cómo se usa la app y qué significa cada estado"):
+        dialogo_guia()
+    if c4.button("⚙️", key="btn_config", help="Configuración (usuario de Tourplan, Sheet, URL de Tourplan)"):
         dialogo_configuracion()
     if not usuario and not st.session_state.get("_config_abierta_sola"):       # la primera vez se abre sola, una vez por sesión
         st.session_state["_config_abierta_sola"] = True
@@ -457,6 +501,10 @@ def _cerrar_si_termino(estado):
         estado["aviso_cerrado"] = False
         st.session_state["_reiniciar_confirmo"] = True            # la confirmación de Aplicar vale para una sola corrida
         _refrescar_conteo(estado, _sheet_url_guardada())      # la cola está arriba: que refleje el resultado
+        if user_config.cargar().get("avisos", True):
+            nivel, texto = estado["mensaje"]
+            avisos.avisar("Actualización de costos", {"success": "La corrida terminó.", "info": "La corrida se abortó.",
+                                                      "error": "La corrida se detuvo con un problema: revisá la pantalla."}.get(nivel, texto))
         st.rerun()
 
 
@@ -477,10 +525,14 @@ def render_barra(estado):
         hechas, total = _progreso(estado["log_lines"])
         avance = f"Combinación {min(hechas, total)} de {total}" if total else "Iniciando…"
         pct = int(min(max(hechas - 1, 0), total) / total * 100) if total else 0      # la combinación en curso todavía no cuenta
+        if hechas >= 1 and not estado.get("t_primera"):
+            estado["t_primera"] = time.time()                                          # desde acá se cuenta el ritmo (sin el login)
+        restante = E.estimar_restante(estado.get("t_primera"), max(hechas - 1, 0), total, time.time())
+        tiempo = (f"quedan ~{reporte_entrada.texto_duracion(restante)}" if restante is not None else "calculando el tiempo restante…")
         c1, c2 = st.columns([9, 1.4], vertical_alignment="center")
         c1.markdown(
             f'<div class="sd-run {"apl" if aplicar else "rev"}">{_insignia("APLICANDO" if aplicar else "REVISANDO", "apl" if aplicar else "rev")}'
-            f'<b>{_h(avance)}</b><span class="sd-nota">{minutos} min · no toques la ventana de Chrome</span>'
+            f'<b>{_h(avance)}</b><span class="sd-nota">{minutos} min · {tiempo} · no toques la ventana de Chrome</span>'
             f'<div class="sd-barra {"apl" if aplicar else ""}"><i style="width:{pct}%"></i></div><span class="sd-pct">{pct} %</span></div>',
             unsafe_allow_html=True)
         c2.button("⏹ Abortar", key="abortar_barra", disabled=estado["abort_pedido"], use_container_width=True,
@@ -533,7 +585,7 @@ def render_cola(estado, sheet_url):
             c = estado["conteo"]
             items = [("pend", "Pendiente", c["Pendiente"]), ("", "OK", c["OK"]), ("mal" if c["Error"] > 0 else "", "Error", c["Error"]),
                      ("", "Duplicado", c["Duplicado"]), ("", "Otro", c["Otro"])]
-            c2.markdown('<div class="sd-cola">' + "".join(f'<div class="{k}"><span class="n">{n}</span><span class="l">{t}</span></div>'
+            c2.markdown('<div class="sd-cola">' + "".join(f'<div class="{k}" title="{_h(glosario.COLA[t])}"><span class="n">{n}</span><span class="l">{t}</span></div>'
                                                           for k, t, n in items) + "</div>", unsafe_allow_html=True)
         else:
             c2.caption("Tocá Refrescar para ver cuántas filas hay Pendientes, OK o con Error.")
@@ -542,6 +594,9 @@ def render_cola(estado, sheet_url):
             st.rerun()
         c4.button("⏹ Abortar", key="abortar_cola", disabled=not estado["running"] or estado["abort_pedido"], use_container_width=True,
                   help="Corta al terminar la combinación en curso y hace logout de Tourplan.", on_click=_pedir_abortar, args=(estado,))
+        with st.popover("¿Qué significa cada estado?", type="tertiary"):
+            st.markdown("**Cola de trabajo**\n\n" + glosario.markdown_cola())
+            st.markdown("**Estados en la columna ESTADO del Sheet**\n\n" + glosario.markdown_estados())
 
 
 # ── Paso 1 · Ejecutar ───────────────────────────────────────────────────────
@@ -552,9 +607,10 @@ def _seccion(numero, titulo):
 
 def render_cargar_reporte(estado, bloqueado):
     """Carga de combinaciones desde un reporte Service Status: vista previa y confirmación obligatoria antes de escribir en el Sheet."""
-    st.caption("Subí el reporte **Service Status** exportado de Tourplan. La app saca los servicios cancelados, deja una línea por combinación "
-               "(Location + Supplier + Service Type + Option), descarta las que no se pueden procesar y te muestra el resultado. "
-               "**Nada se carga hasta que confirmes.**")
+    st.caption("Subí el reporte **Service Status** exportado de Tourplan, filtrado por Location, fechas de servicio y servicio, y sin las reservas "
+               "CX-Cancelled (pestaña Bookings). La app saca los servicios cancelados, deja una línea por combinación (Location + Supplier + Service "
+               "Type + Option + tipo), descarta las que no se pueden procesar y te muestra el resultado. **Nada se carga hasta que confirmes.** Las fechas "
+               "de los servicios se guardan en la pestaña PARAMETROS del Sheet.")
     sheet_url = _sheet_url_guardada()
     archivo = st.file_uploader("Reporte Service Status (.csv)", type=["csv"], key="rep_entrada", disabled=bloqueado)
     if st.button("Analizar reporte", disabled=not (archivo and sheet_url) or bloqueado, key="analizar_reporte"):
@@ -615,7 +671,7 @@ def _n_combinaciones(n):
     return f"{n} {'combinación' if n == 1 else 'combinaciones'}"
 
 
-def _verificar_requisitos(p, pend, pre_nombre, confirmo):
+def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None)):
     """Requisitos para ejecutar: ([(estado, html)] con estado 'ok' | 'no' | 'neutro', lo que falta). Solo lo obligatorio; los valores van en negrita."""
     aplicar = p["modo"] == "aplicar"
     items, faltan = [], []
@@ -629,6 +685,12 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo):
         items.append(("ok" if pend > 0 else "no", f"Combinaciones pendientes en el Sheet ({_h(p['tipo_reservas'])}): <b>{pend}</b>"))
         if pend == 0:
             faltan.append("combinaciones pendientes")
+    if rango[0] and rango[1]:
+        items.append(("ok", f"Fechas de los servicios: <b>{parametros_sheet.texto(rango[0])} – {parametros_sheet.texto(rango[1])}</b> (pestaña PARAMETROS del Sheet)"))
+        if rango[0] > rango[1]:
+            faltan.append("un rango de fechas válido en la pestaña PARAMETROS (DESDE no puede ser posterior a HASTA)")
+    else:
+        items.append(("neutro", "Fechas de los servicios: sin definir en la pestaña PARAMETROS del Sheet (se sustituye de mañana en adelante)"))
     if p.get("origen") == "reporte":
         faltan.append("terminar la carga del reporte nuevo")
     if aplicar:
@@ -667,6 +729,8 @@ def render_ejecutar(estado):
             st.markdown('<div class="sd-bandera">⚠ MODO APLICAR · Modifica reservas reales en Tourplan</div>', unsafe_allow_html=True)
         if estado.get("aviso_carga"):
             st.success(estado.pop("aviso_carga"))
+        if st.session_state.pop("_aviso_rango", False):
+            st.warning("No pude guardar las fechas de los servicios en la pestaña PARAMETROS del Sheet. Completá DESDE y HASTA a mano antes de ejecutar.")
         c1, c2, c3 = st.columns([1.1, 1, 1.25], gap="large")
         with c1:
             origen = _selector("origen", "Combinaciones a procesar", 1, ["pendientes", "reporte"],
@@ -683,21 +747,23 @@ def render_ejecutar(estado):
         pre = None
         if aplicar:
             st.markdown('<div class="sd-glab sd-aparte">Reporte PRE</div>'
-                        '<div class="sd-texto">Product Analysis exportado ANTES de la corrida (.csv) — <b>obligatorio en Aplicar</b></div>',
+                        '<div class="sd-texto">Product Analysis exportado ANTES de la corrida (.csv), con las mismas fechas y filtros que el Service Status — <b>obligatorio en Aplicar</b></div>',
                         unsafe_allow_html=True)
             pre = st.file_uploader("Reporte PRE", type=["csv"], disabled=bloqueado, key="rep_pre", label_visibility="collapsed",
                                    help="Es la única foto de costos y ventas para revisar la corrida después (y corregir si hace falta). Tiene que "
                                         "cubrir todas las combinaciones PENDIENTES. Se guarda en salida/pre_reportes y el comparador lo usa como «antes».")
 
         usuario, password = user_config.tp_credenciales_default()
-        hoy = date.today()
-        # Sin rango de fechas en pantalla: el Service Status ya vino filtrado. Se sustituyen los servicios desde mañana en adelante.
-        p = {"modo": modo, "desde": hoy + timedelta(days=1), "hasta": date(2049, 12, 31), "sheet_url": _sheet_url_guardada(),
+        # Fechas de los servicios: las de la pestaña PARAMETROS del Sheet (la app las completa al cargar un reporte; se pueden editar a mano).
+        # Sin ellas, de mañana en adelante.
+        rango = estado.get("rango") or (None, None)
+        d_def, h_def = parametros_sheet.rango_por_defecto()
+        p = {"modo": modo, "desde": (rango[0] or d_def).date(), "hasta": (rango[1] or h_def).date(), "sheet_url": _sheet_url_guardada(),
              "base_url": _url_tourplan(), "fila": 0, "confirmar_ok": False, "usuario": usuario, "password": password,
              "pre_contenido": pre.getvalue() if pre else None, "tipo_reservas": tipo_reservas, "origen": origen}
 
         confirmo = bool(st.session_state.get("confirmo")) if aplicar else False
-        items, faltan = _verificar_requisitos(p, pend, pre.name if pre else None, confirmo)
+        items, faltan = _verificar_requisitos(p, pend, pre.name if pre else None, confirmo, rango)
         if not bloqueado:
             simbolo = {"ok": "✔", "no": "🔒" if aplicar else "○", "neutro": "○"}
             st.markdown('<ul class="sd-reqs">' + "".join(f'<li class="{"ok" if e == "ok" else "no"}"><span>{simbolo[e]}</span><span>{t}</span></li>'
@@ -725,7 +791,16 @@ def render_ejecutar(estado):
             st.markdown(f'<div class="sd-pista">{texto}</div>', unsafe_allow_html=True)
     if ejecutar:
         error_pre = None
-        if aplicar:
+        try:                # las fechas pudieron editarse en el Sheet desde la última lectura: se vuelven a leer
+            ws_rango = conectar_sheets(p["sheet_url"], "SUBSTITUTE", user_config.CREDENTIALS_PATH, user_config.TOKEN_PATH)
+            d_hoja, h_hoja = parametros_sheet.leer_del_sheet(ws_rango)
+            estado["rango"] = (d_hoja, h_hoja)
+            p["desde"], p["hasta"] = (d_hoja or d_def).date(), (h_hoja or h_def).date()
+        except Exception:
+            pass
+        if p["desde"] > p["hasta"]:
+            error_pre = "En la pestaña PARAMETROS del Sheet, DESDE es posterior a HASTA: corregilo y volvé a ejecutar."
+        elif aplicar:
             error_pre, _ = _verificar_pre(p)
         if error_pre:
             st.error(error_pre)
@@ -778,7 +853,10 @@ def _resultado_comparacion(res):
     tiles = [("Líneas antes → después", f"{r['Líneas antes']} → {r['Líneas después']}", ""), ("Venta modificada", nv, "mal" if nv else ""),
              ("Costo cambió", r["Costo cambió"], "info"), ("Otros cambios", r["Otros cambios"], ""),
              ("Solo en uno de los dos", r["Solo en uno de los dos"], ""), ("Sin cambios", r["Sin cambios"], "")]
-    st.markdown('<div class="sd-tiles">' + "".join(f'<div class="sd-tile {k}"><div class="n">{n}</div><div class="l">{t}</div></div>'
+    ayuda_tile = {"Venta modificada": glosario.COMPARACION["Venta modificada"], "Costo cambió": glosario.COMPARACION["Costo cambió"],
+                  "Otros cambios": glosario.COMPARACION["Otros cambios"], "Solo en uno de los dos": glosario.COMPARACION["Solo antes / Solo después"],
+                  "Sin cambios": glosario.COMPARACION["Sin cambios"], "Líneas antes → después": "Cantidad de líneas de cada reporte."}
+    st.markdown('<div class="sd-tiles">' + "".join(f'<div class="sd-tile {k}" title="{_h(ayuda_tile.get(t, ""))}"><div class="n">{n}</div><div class="l">{t}</div></div>'
                                                    for t, n, k in tiles) + "</div>", unsafe_allow_html=True)
     if "Control: líneas no tocadas" in r:
         n_ctl, n_ctl_mal = r["Control: líneas no tocadas"], r["Control: con venta modificada"]
@@ -822,10 +900,13 @@ def render_comparar(estado):
         st.markdown('<p class="sd-cola-titulo">Comparar reportes antes / después</p><p class="sd-nota">Control de costo y venta. '
                     "No hace falta haber ejecutado antes: podés subir los dos reportes a mano. El PRE de la última corrida en modo aplicar "
                     "queda guardado y se puede usar como «antes».</p>", unsafe_allow_html=True)
+        with st.popover("¿Qué significa cada resultado?", type="tertiary"):
+            st.markdown(glosario.markdown_comparacion())
         c1, c2 = st.columns(2)
         guardado = pre_reporte.ultimo_pre(SALIDA / pre_reporte.CARPETA)
         usar_guardado = False
         c1.markdown('<span class="sd-etiqueta">Antes (PRE)</span>', unsafe_allow_html=True)
+        c1.caption("El reporte exportado antes de ejecutar. Si corriste desde la app en modo Aplicar, ya está guardado.")
         if guardado:
             usar_guardado = c1.checkbox(
                 f"Usar el PRE guardado de la última corrida ({datetime.fromtimestamp(guardado.stat().st_mtime):%d/%m/%Y %H:%M})",
@@ -839,6 +920,7 @@ def render_comparar(estado):
                                 help="Las líneas del otro tipo no se tocaron: se usan como grupo de control (si la venta cambió ahí, la causa no es la "
                                      "sustitución). Con un PRE guardado se completa solo; con AMBOS no se separa nada.")
         c2.markdown('<span class="sd-etiqueta">Después (POST)</span>', unsafe_allow_html=True)
+        c2.caption("Product Analysis exportado después de la corrida, con las mismas fechas y filtros que el PRE.")
         despues = c2.file_uploader("Reporte DESPUÉS (.csv)", type=["csv"], key="rep_despues", label_visibility="collapsed")
         antes_bytes = guardado.read_bytes() if usar_guardado else (antes.getvalue() if antes else None)
         if st.button("Comparar", type="primary", disabled=not (antes_bytes and despues), key="comparar"):

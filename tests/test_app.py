@@ -3,6 +3,7 @@ Se reemplaza subprocess.Popen para ver con qué entorno se lanzaría el script. 
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -54,7 +55,7 @@ class App(unittest.TestCase):
         return at.run()
 
     def configurar(self, sheet="https://docs.google.com/spreadsheets/d/XYZ/edit"):
-        user_config.guardar({"tp_usuario": "daiana", "tp_password": "secreta", "headless": False,
+        user_config.guardar({"tp_usuario": "daiana", "tp_password": "secreta", "headless": False, "avisos": False,
                              "sheet_urls": {"substitute_doble": sheet}})
 
     def boton(self, at, clave):
@@ -267,8 +268,9 @@ class App(unittest.TestCase):
         self.assertFalse(at.exception)
         cola = next(m.value for m in at.markdown if 'class="sd-cola"' in m.value)
         for esperado in ('<span class="n">2</span><span class="l">Pendiente', '<span class="n">1</span><span class="l">OK',
-                         'class="mal"><span class="n">1</span><span class="l">Error'):
+                         'class="mal" title=', '<span class="n">1</span><span class="l">Error'):
             self.assertIn(esperado, cola)
+        self.assertIn("title=\"Procesadas: el costo se actualizó", cola)                              # cada contador explica qué significa (tooltip)
         self.assertIn("Terminó bien", self.textos(at))
         self.assertIn("ir_comparar", [b.key for b in at.button])                                       # tras aplicar, sugiere comparar
 
@@ -349,6 +351,67 @@ class App(unittest.TestCase):
              mock.patch("common.sheets_client.cargar_sheet", return_value=([{"ESTADO": "PENDIENTE"}], ["ESTADO"])):
             at.run()
         self.assertIn("+3 al confirmar la carga del reporte", self.textos(at))
+
+    def test_boton_de_guia_y_glosarios(self):
+        self.configurar()
+        at = self.app()
+        self.assertIn("btn_guia", [b.key for b in at.button])
+        self.assertIn("¿Qué significa cada estado?", [p.proto.popover.label for p in at.get("popover")])           # en la cola
+        self.assertIn("¿Qué significa cada resultado?", [p.proto.popover.label for p in at.get("popover")])        # en el comparador
+        texto = self.textos(at)
+        self.assertIn("ERROR_COLGADAS", texto)
+        self.assertIn("Venta modificada", texto)
+        self.assertIn("Product Analysis exportado después de la corrida", " ".join(c.value for c in at.caption))
+
+    def test_tiempo_restante_estimado_en_la_barra(self):
+        self.configurar()
+        run_dir = Path(tempfile.mkdtemp())
+        log = ["[10:00:00] Filas PENDIENTE a procesar: 10\n"] + [f"[10:00:0{i}] Fila {i}: BUE/A/GU/X\n" for i in range(1, 6)]
+        at = self.app(estado_falso(running=True, modo="aplicar", run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag", log_lines=log[:3],
+                                   t_primera=time.time() - 60))
+        self.assertIn("calculando el tiempo restante", self.textos(at))                              # con menos de 3 terminadas todavía no se estima
+        at = self.app(estado_falso(running=True, modo="aplicar", run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag", log_lines=log,
+                                   t_primera=time.time() - 120))
+        self.assertIn("quedan ~", self.textos(at))                                                    # 4 terminadas en 2 min: faltan unos minutos
+
+    def test_al_terminar_avisa_si_esta_activado(self):
+        for activado, veces in ((True, 1), (False, 0)):
+            user_config.guardar({"tp_usuario": "daiana", "tp_password": "secreta", "headless": False, "avisos": activado,
+                                 "sheet_urls": {"substitute_doble": "https://docs.google.com/spreadsheets/d/XYZ/edit"}})
+            at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+            at.session_state["_corrida"] = estado_falso(running=True, finished=True, log_lines=["x\n"], returncode=0, modo="aplicar")
+            with mock.patch("common.avisos.avisar") as avisar, \
+                 mock.patch("common.sheets_client.conectar_sheets", side_effect=RuntimeError("sin red en la prueba")):
+                at.run()
+            self.assertEqual(avisar.call_count, veces, activado)
+
+    def test_las_fechas_salen_de_la_pestana_parametros_del_sheet(self):
+        self.configurar()
+
+        class Hoja:
+            title = "PARAMETROS"
+
+            def get_all_values(self):
+                return [["DESDE", "01/12/2026"], ["HASTA", "31/12/2026"]]
+
+        class WSFalsa:
+            spreadsheet = type("L", (), {"worksheets": lambda self: [Hoja()]})()
+
+        filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=WSFalsa()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])), \
+             mock.patch("subprocess.Popen", ProcFalso):
+            at.run()
+            self.assertIn("Fechas de los servicios: <b>01/12/2026 – 31/12/2026</b>", self.textos(at))
+            self.boton(at, "ejecutar_revision").click().run()
+        env = ProcFalso.llamada[1]["env"]
+        self.assertEqual((env["TOURPLAN_FECHA_DESDE"], env["TOURPLAN_FECHA_HASTA"]), ("01/12/26", "31/12/26"))
+
+    def test_sin_fechas_en_el_sheet_se_usa_de_manana_en_adelante_y_se_avisa(self):
+        self.configurar()
+        at = self.app()
+        self.assertIn("Fechas de los servicios: sin definir en la pestaña PARAMETROS", self.textos(at))
 
     def test_sin_configurar_no_se_puede_ejecutar(self):
         at = self.app()

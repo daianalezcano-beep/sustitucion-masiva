@@ -124,6 +124,15 @@ def pendientes_del_modo(por_tipo, modo):
     return sum(n for tipo, n in por_tipo.items() if T.fila_corresponde(tipo, modo))
 
 
+def estimar_restante(t_primera, terminadas, total, ahora, minimo=3):
+    """Segundos que faltan, según lo que tardaron las combinaciones ya terminadas (promedio por combinación). `t_primera`: instante en que empezó
+    la primera combinación (sin contar el login). None mientras haya menos de `minimo` terminadas o no se conozca el total."""
+    if not t_primera or not total or terminadas < minimo:
+        return None
+    por_combinacion = (ahora - t_primera) / terminadas
+    return max(0, int(round(por_combinacion * max(total - terminadas, 0))))
+
+
 # ── Confirmación antes de cada OK ───────────────────────────────────────────
 
 def _escribir(ruta, texto):
