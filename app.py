@@ -567,7 +567,8 @@ def render_barra(estado):
         nivel, texto = estado["mensaje"]
         clase = {"success": "ok", "info": "warn", "error": "mal"}.get(nivel, "warn")
         c1, c2, c3 = st.columns([9, 1.6, 0.5], vertical_alignment="center")
-        c1.markdown(f'<div class="sd-run {clase}">{_h(texto)}</div>', unsafe_allow_html=True)
+        texto_html = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", _h(texto))          # los **negritas** del mensaje se muestran como negrita, no como asteriscos
+        c1.markdown(f'<div class="sd-run {clase}">{texto_html}</div>', unsafe_allow_html=True)
         if estado["modo"] == "aplicar" and nivel == "success":
             if c2.button("Ir a Comparar →", key="ir_comparar", type="primary", use_container_width=True, on_click=_ir_a_comparar):
                 st.rerun()

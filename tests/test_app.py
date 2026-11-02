@@ -598,6 +598,7 @@ class App(unittest.TestCase):
             aviso = next((m.value for m in at.markdown if 'class="sd-run' in m.value and texto in m.value), None)
             self.assertIsNotNone(aviso, (rc, texto))
             self.assertIn(f'sd-run {clase}"', aviso)
+            self.assertNotIn("**", aviso)                                                              # sin asteriscos sueltos (la negrita se dibuja como <b>)
             self.assertEqual("ir_comparar" in [b.key for b in at.button], rc == 0)                    # «Ir a Comparar» solo tras aplicar sin problemas
 
     def test_sin_usuario_el_dialogo_de_configuracion_se_abre_solo(self):
