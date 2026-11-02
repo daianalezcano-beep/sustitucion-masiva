@@ -853,6 +853,26 @@ class MainOrquestador(unittest.TestCase):
         self.assertIn("Excluidas por costo manualizado (revisar a mano): 1 línea(s)", texto)
         self.assertIn("BUE/S1/GU/C1 · EAGR1 · 01/Nov/2026: Costo manualizado (Override)", texto)
 
+    def test_si_se_confirmo_que_no_hay_costos_manualizados_se_ignora_la_pestana_exclusiones(self):
+        filas = [{"__row_idx__": 2, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C1", "TIPO": "GRUPOS", "ESTADO": "PENDIENTE"}]
+        sd.cargar_hojas = lambda: (object(), filas, sd.COLS_INPUT + ["TIPO", "OBSERVACIONES", "TIMESTAMP"], None, None)
+        guardado = (sd.X.leer_del_sheet, sd.SIN_EXCLUSIONES)
+        leidas, ctxs = [], []
+        sd.X.leer_del_sheet = lambda ws: (leidas.append(1), [{"REFERENCE": "R", "SERVICE DATE": "01/11/2026", "LOCATION": "BUE", "SERVICE TYPE": "GU",
+                                                             "SUPPLIER": "S1", "CODIGO": "C1", "TIPO": "GRUPOS", "VOUCHER": "", "DESCRIPCION": ""}])[1]
+        sd.procesar_fila_lectura = lambda d, ctx, row: (ctxs.append(dict(ctx["exclusiones"])), ("obs", [], 1, {}))[1]
+        sd.MODO, sd.TIPO_RESERVAS = "lectura", "AMBOS"
+        try:
+            for sin in (False, True):
+                leidas.clear()
+                ctxs.clear()
+                sd.SIN_EXCLUSIONES = sin
+                sd.main()
+                self.assertEqual(len(ctxs[0]) > 0, not sin, sin)                                 # con «no hay» la lista vieja no se aplica
+                self.assertEqual(len(leidas), 0 if sin else 1, sin)                              # ni siquiera se lee
+        finally:
+            sd.X.leer_del_sheet, sd.SIN_EXCLUSIONES = guardado
+
     def test_si_el_login_falla_no_se_hace_logout(self):
         def login_roto(d):
             raise AssertionError("Login falló")

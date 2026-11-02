@@ -29,7 +29,7 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
   con esa clave que líneas en la lista, no se distinguen y **se excluyen todas** (con ese motivo). Cada línea excluida se informa con su motivo en la consola (resumen del final), en
   OBSERVACIONES, en SUBSTITUTE_DETALLE (fase `EXCLUIDA`) y en el mensaje final de la app. Si todas las reservas de la combinación están excluidas, la fila queda `EXCLUIDA` y no se toca nada. En
   modo **lectura** se prueba la exclusión (selecciona todo, destilda, verifica y deja todo sin seleccionar; nunca toca OK) y se informa `exclusion_por_linea=OK(n de m)`.
-  **Sin probar en Tourplan real:** conviene correr primero en lectura una combinación con una línea manualizada. En modo Aplicar es un requisito: lista guardada **de hoy** o confirmar que no hay.
+  **Sin probar en Tourplan real:** conviene correr primero en lectura una combinación con una línea manualizada. En modo Aplicar es un requisito: lista guardada **de hoy** o tildar **«No hay costos manualizados»** (no hace falta adjuntar nada); con esa casilla el script ignora la pestaña EXCLUSIONES (`TOURPLAN_SIN_EXCLUSIONES=1`), aunque tenga una lista vieja.
   Lógica en `common/exclusiones.py`.
 - **Fechas de los servicios:** ya no se eligen en pantalla. Salen de la pestaña **PARAMETROS** del Sheet (dos celdas: `DESDE` en B1 y `HASTA` en B2, texto DD/MM/AAAA).
   Al confirmar la carga de un reporte la app las completa con el primer y el último servicio de lo cargado (con pendientes de antes, amplía el rango; sin ellos, lo reemplaza);

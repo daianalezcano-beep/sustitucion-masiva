@@ -93,6 +93,8 @@ MODO = os.environ.get("TOURPLAN_MODO", "lectura")
 # Tipo de reservas a procesar: FITS, GRUPOS o AMBOS. Cada fila del Sheet tiene su TIPO y se procesa con el filtro Department de ese tipo
 # (ver common/tipo_reserva.py); las filas anteriores a la columna TIPO (vacías) solo se procesan en AMBOS.
 TIPO_RESERVAS = os.environ.get("TOURPLAN_TIPO_RESERVAS", T.TIPO_AMBOS).strip().upper() or T.TIPO_AMBOS
+# Si la persona confirmó que no hay costos manualizados, la pestaña EXCLUSIONES (que puede tener una lista vieja) se ignora.
+SIN_EXCLUSIONES = os.environ.get("TOURPLAN_SIN_EXCLUSIONES", "0").strip() in ("1", "true", "True")
 SHEET_URL = os.environ.get("TOURPLAN_SHEET_URL", "")
 HOJA = os.environ.get("TOURPLAN_HOJA", "SUBSTITUTE")
 HOJA_DET = os.environ.get("TOURPLAN_HOJA_DETALLE", "SUBSTITUTE_DETALLE")
@@ -1730,9 +1732,11 @@ def main():
     # Costos manualizados (pestaña EXCLUSIONES del Sheet): las filas de Results que coincidan con una línea de la lista (referencia + fecha + código) se
     # excluyen de la sustitución y se informan al final; los demás files de la combinación se procesan.
     try:
-        exclusiones = X.por_combinacion(X.leer_del_sheet(ws))
+        exclusiones = {} if SIN_EXCLUSIONES else X.por_combinacion(X.leer_del_sheet(ws))
     except Exception:
         exclusiones = {}
+    if SIN_EXCLUSIONES:
+        print("Sin lista de costos manualizados: se confirmó que no hay (se ignora la pestaña EXCLUSIONES)")
     if exclusiones:
         print(f"Lista de costos manualizados (EXCLUSIONES): {sum(len(v) for v in exclusiones.values())} línea(s) en {len(exclusiones)} combinación(es)")
 

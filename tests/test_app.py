@@ -426,6 +426,24 @@ class App(unittest.TestCase):
             self.assertEqual("Costos manualizados: lista de hoy (<b>3</b> líneas en <b>2</b> combinaciones)" in texto, ok, fecha)
             self.assertEqual("sin_manuales" not in [c.key for c in at.checkbox], ok, fecha)              # con lista de hoy no hace falta confirmar que no hay
 
+    def test_sin_costos_manualizados_se_tilda_la_confirmacion_y_el_script_ignora_la_lista_vieja(self):
+        self.configurar()
+        lista_vieja = (3, 2, datetime(2026, 1, 5, 10, 0))                                         # guardada en el Sheet hace tiempo
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_corrida"] = estado_falso(excl_info=lista_vieja, conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
+                                                    pend_tipo={"FITS": 1, "GRUPOS": 0, "": 0})
+        at.session_state["modo"] = "aplicar"
+        at.run()
+        self.assertIn("sin_manuales", [c.key for c in at.checkbox])                              # no hace falta adjuntar nada: alcanza con tildar
+        self.assertIn("Costos manualizados: cargá la lista de hoy o tildá «no hay»", self.textos(at))
+        at.checkbox(key="sin_manuales").check().run()
+        self.assertIn("Costos manualizados: <b>confirmaste que no hay</b> (no se usa ninguna lista)", self.textos(at))
+        from common import ejecucion as E
+        p = {"usuario": "u", "password": "p", "sheet_url": "x", "base_url": "https://t", "modo": "aplicar", "desde": datetime(2026, 11, 3).date(),
+             "hasta": datetime(2049, 12, 31).date(), "fila": 0, "sin_exclusiones": True}
+        self.assertEqual(E.armar_entorno(p, {}, "/r", "/r/run", "/r/s", "/r/stop", "/c", "/t")["TOURPLAN_SIN_EXCLUSIONES"], "1")
+        self.assertEqual(E.armar_entorno(dict(p, sin_exclusiones=False), {}, "/r", "/r/run", "/r/s", "/r/stop", "/c", "/t")["TOURPLAN_SIN_EXCLUSIONES"], "0")
+
     def test_el_resumen_de_excluidas_aparece_al_terminar(self):
         self.configurar()
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
@@ -474,7 +492,7 @@ class App(unittest.TestCase):
         self.assertNotIn("confirmar_ok", [c.key for c in at.checkbox])
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])
         self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
-        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE · cargar la lista de costos manualizados de hoy (o confirmar que no hay) · confirmar el modo Aplicar.",
+        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE · costos manualizados: cargar la lista de hoy o tildar «no hay costos manualizados» · confirmar el modo Aplicar.",
                       self.textos(at))
         self.assertIn("sin_manuales", [c.key for c in at.checkbox])
         at.checkbox(key="confirmo").check().run()

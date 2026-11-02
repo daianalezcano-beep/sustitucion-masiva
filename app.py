@@ -784,11 +784,11 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None), exc
         if excl and excl[2] and excl[2].date() == datetime.now().date():
             items.append(("ok", f"Costos manualizados: lista de hoy (<b>{excl[0]}</b> líneas en <b>{excl[1]}</b> combinaciones)"))
         elif sin_manuales:
-            items.append(("ok", "Costos manualizados: <b>confirmaste que no hay</b>"))
+            items.append(("ok", "Costos manualizados: <b>confirmaste que no hay</b> (no se usa ninguna lista)"))
         else:
             cuando = f" (la guardada es del {excl[2]:%d/%m})" if excl and excl[2] else ""
-            items.append(("no", "Falta revisar los costos manualizados" + cuando))
-            faltan.append("cargar la lista de costos manualizados de hoy (o confirmar que no hay)")
+            items.append(("no", "Costos manualizados: cargá la lista de hoy o tildá «no hay»" + cuando))
+            faltan.append("costos manualizados: cargar la lista de hoy o tildar «no hay costos manualizados»")
         if not confirmo:
             faltan.append("confirmar el modo Aplicar")
     return items, faltan
@@ -854,6 +854,9 @@ def render_ejecutar(estado):
         p = {"modo": modo, "desde": (rango[0] or d_def).date(), "hasta": (rango[1] or h_def).date(), "sheet_url": _sheet_url_guardada(),
              "base_url": _url_tourplan(), "fila": 0, "confirmar_ok": False, "usuario": usuario, "password": password,
              "pre_contenido": pre.getvalue() if pre else None, "tipo_reservas": tipo_reservas, "origen": origen}
+        info_x0 = estado.get("excl_info")
+        lista_de_hoy = bool(info_x0 and info_x0[2] and info_x0[2].date() == datetime.now().date())
+        p["sin_exclusiones"] = bool(aplicar and st.session_state.get("sin_manuales") and not lista_de_hoy)       # «no hay»: se ignora una lista vieja del Sheet
 
         if not bloqueado:
             with st.expander("Costos manualizados (lista de exclusiones)"):
@@ -873,7 +876,7 @@ def render_ejecutar(estado):
         if aplicar and not bloqueado:
             info_x = estado.get("excl_info")
             if not (info_x and info_x[2] and info_x[2].date() == datetime.now().date()):
-                st.checkbox("Revisé los costos manualizados: **no hay servicios para excluir** (o ya cargué la lista)", key="sin_manuales")
+                st.checkbox("**No hay costos manualizados** para excluir en esta corrida (no hace falta cargar ninguna lista)", key="sin_manuales")
             with st.container(key="confirmo_aplicar"):
                 st.checkbox(":red[**Entiendo que esto modifica reservas reales.**] Se va a trabajar sobre Tourplan en producción.", key="confirmo")
         errores = E.validar_parametros(p)
