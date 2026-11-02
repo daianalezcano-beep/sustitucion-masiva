@@ -15,7 +15,7 @@ COLA = {
 
 # Estados de la columna ESTADO del Sheet: (estado, qué significa, qué hacer).
 ESTADOS_SHEET = [
-    ("PENDIENTE", "Todavía no se procesó.", "Nada: se procesa en la próxima corrida del tipo que corresponda."),
+    ("PENDIENTE", "Todavía no se procesó.", "Nada: se procesa en la próxima corrida."),
     ("OK", "Se actualizó el costo y la verificación final dio igual que antes.", "Nada."),
     ("ERROR_COLGADAS", "Pudieron quedar reservas en el servicio provisorio (1EURO1 / 000000). La corrida se detiene para no empeorar.",
      "Revisar en Tourplan que no queden reservas en el provisorio y corregirlas antes de volver a correr (el detalle está en SUBSTITUTE_DETALLE)."),
@@ -33,7 +33,7 @@ ESTADOS_SHEET = [
     ("ERROR: pickup/dropoff", "Hay datos de pickup, drop-off o Remarks que la herramienta no repone para ese tipo de servicio; no se tocó nada.",
      "Procesar esa combinación aparte, o avisar a quien mantiene la herramienta."),
     ("ERROR: filtro de estado / department", "No se pudo dejar un filtro de Tourplan como se pidió.", "Volver a correr esa fila."),
-    ("ERROR: tipo inválido", "La columna TIPO tiene un valor que no se entiende.", "Corregirlo a FITS o GRUPOS."),
+    ("ERROR: tipo inválido", "La columna TIPO tiene un valor que no se entiende (solo si se separa por tipo en la configuración).", "Corregirlo a FITS, GRUPOS o PROMO, o dejarlo vacío."),
     ("DUPLICADO", "La combinación estaba repetida en el Sheet.", "Nada: se procesó la otra fila."),
     ("EXCLUIDA", "Todas las reservas de la combinación tienen el costo manualizado (Override) según la lista de exclusiones: no se procesó nada.",
      "Revisar esas líneas y actualizar el costo a mano en Tourplan."),
@@ -49,8 +49,8 @@ COMPARACION = {
     "Otros cambios": "Cambió otro dato (estado, pax, cantidad, moneda, voucher…) sin que cambie la venta.",
     "Solo antes / Solo después": "La línea está en un reporte y no en el otro (por ejemplo, un guía asignado entre los dos reportes).",
     "Sin cambios": "La línea quedó igual.",
-    "Control": "Líneas que la herramienta no toca (proveedores «por asignar» o del otro tipo de reservas). Si la venta también cambió ahí, la causa no es la sustitución.",
-    "Tipo": "FITS (individuales), GRUPOS o SIN CLASIFICAR, según el Department de la reserva.",
+    "Control": "Líneas que la herramienta no toca (proveedores «por asignar» y, si se separa por tipo, el otro tipo de reservas). Si la venta también cambió ahí, la causa no es la sustitución.",
+    "Tipo": "FITS (individuales), GRUPOS, PROMO (promoción) o SIN CLASIFICAR, según el Department de la reserva. Es informativo: se muestra siempre.",
 }
 
 

@@ -126,7 +126,8 @@ def _verificar_pre(p):
                   and T.normalizar_tipo(f.get("TIPO")) is not None and T.fila_corresponde(T.normalizar_tipo(f.get("TIPO")), p["tipo_reservas"])
                   and (not p["fila"] or f.get("__row_idx__") == p["fila"])]
     if not pendientes:
-        return f"No hay filas PENDIENTES de tipo {p['tipo_reservas']} para procesar (revisá la hoja, el tipo o el número de fila).", None
+        tipo = f" de tipo {p['tipo_reservas']}" if p.get("separar_tipo") else ""
+        return f"No hay filas PENDIENTES{tipo} para procesar (revisá la hoja{', el tipo' if tipo else ''} o el número de fila).", None
     faltan = pre_reporte.combinaciones_faltantes(filas_pre, pendientes, datetime.combine(p["desde"], datetime.min.time()),
                                                  datetime.combine(p["hasta"], datetime.min.time()))
     if faltan:
@@ -448,9 +449,9 @@ previa y **Confirmar**. Nada se escribe en el Sheet hasta que confirmes. Las fec
 **Costos manualizados.** Antes de aplicar, abrí *Costos manualizados (lista de exclusiones)* y subí la lista de Tourplan de servicios con Override. Las líneas que coincidan
 (reserva + fecha + código) no se procesan, y el resto de la combinación sí. Se informan al final con su motivo para actualizarlas a mano. La lista tiene que ser de hoy, o confirmar que no hay.
 
-**2. Elegir el modo y el tipo de reservas.** **Solo revisar** lee y muestra qué se procesaría, sin modificar nada. **Aplicar cambios** hace la sustitución real
-y modifica reservas en Tourplan. Si en la configuración activaste *Separar por tipo*, también elegís qué reservas
-procesar (**FITS**, **GRUPOS** o **AMBOS**); si no, se procesa todo junto.
+**2. Elegir el modo.** **Solo revisar** lee y muestra qué se procesaría, sin modificar nada. **Aplicar cambios** hace la sustitución real
+y modifica reservas en Tourplan. Se procesan todas las reservas juntas (si en la configuración activaste *Separar por tipo*, también elegís cuáles:
+**FITS**, **GRUPOS** o **AMBOS**).
 
 **3. Adjuntar el PRE (solo en Aplicar).** Es el reporte *Product Analysis* exportado de Tourplan **antes** de ejecutar, con las mismas fechas y filtros. La app
 verifica que cubra todo lo que se va a procesar y lo guarda para compararlo después.
@@ -714,7 +715,7 @@ def render_cargar_reporte(estado, bloqueado):
     """Carga de combinaciones desde un reporte Service Status: vista previa y confirmación obligatoria antes de escribir en el Sheet."""
     st.caption("Subí el reporte **Service Status** exportado de Tourplan, filtrado por Location, fechas de servicio y servicio, y sin las reservas "
                "CX-Cancelled (pestaña Bookings). La app saca los servicios cancelados, deja una línea por combinación (Location + Supplier + Service "
-               "Type + Option + tipo), descarta las que no se pueden procesar y te muestra el resultado. **Nada se carga hasta que confirmes.** Las fechas "
+               "Type + Option" + (" + tipo" if _separar_tipo() else "") + "), descarta las que no se pueden procesar y te muestra el resultado. **Nada se carga hasta que confirmes.** Las fechas "
                "de los servicios se guardan en la pestaña PARAMETROS del Sheet.")
     sheet_url = _sheet_url_guardada()
     archivo = st.file_uploader("Reporte Service Status (.csv)", type=["csv"], key="rep_entrada", disabled=bloqueado)
@@ -755,7 +756,7 @@ def render_cargar_reporte(estado, bloqueado):
                                  label_visibility="collapsed")
     filas = plan["a_cargar"] if vista == "cargar" else plan["descartadas"]
     if filas:
-        st.dataframe([{k: v for k, v in c_.items() if k != "N_ESTADOS"} for c_ in filas], hide_index=True, use_container_width=True,
+        st.dataframe([{k: v for k, v in c_.items() if k != "N_ESTADOS" and (k != "TIPO" or _separar_tipo())} for c_ in filas], hide_index=True, use_container_width=True,
                      height="content")
     if not plan["a_cargar"]:
         st.info("No hay combinaciones nuevas para cargar.")
@@ -964,6 +965,11 @@ def _lineas_del_filtro(lineas, filtro):
     return [x for x in lineas if x["Resultado"] != "Sin cambios"]
 
 
+def _lo_que_no_se_toca():
+    """Texto del grupo de control del comparador: proveedores por asignar y, si se separa por tipo, el otro tipo de reservas."""
+    return "proveedores por asignar" + (" o del otro tipo" if _separar_tipo() else "")
+
+
 def _resultado_comparacion(res):
     r = res["resumen"]
     if r["Líneas antes"] == 0 or r["Líneas después"] == 0:
@@ -998,13 +1004,13 @@ def _resultado_comparacion(res):
     if "Control: líneas no tocadas" in r:
         n_ctl, n_ctl_mal = r["Control: líneas no tocadas"], r["Control: con venta modificada"]
         if n_ctl == 0:
-            st.markdown('<p class="sd-control">Control: el reporte no tiene líneas que la herramienta no toque (proveedores por asignar o del otro tipo) para comparar.</p>',
+            st.markdown(f'<p class="sd-control">Control: el reporte no tiene líneas que la herramienta no toque ({_lo_que_no_se_toca()}) para comparar.</p>',
                         unsafe_allow_html=True)
         elif n_ctl_mal:
-            st.warning(f"Control: la venta también cambió en {n_ctl_mal} de {n_ctl} líneas que la herramienta NO toca (proveedores por asignar o del otro tipo). "
+            st.warning(f"Control: la venta también cambió en {n_ctl_mal} de {n_ctl} líneas que la herramienta NO toca ({_lo_que_no_se_toca()}). "
                        "Eso apunta a una causa externa a las sustituciones (tipo de cambio, comisiones, tarifas).")
         else:
-            st.markdown(f'<p class="sd-control">✔ Control: {n_ctl} líneas que la herramienta no toca (por asignar o del otro tipo): la venta no cambió.</p>',
+            st.markdown(f'<p class="sd-control">✔ Control: {n_ctl} líneas que la herramienta no toca ({_lo_que_no_se_toca()}): la venta no cambió.</p>',
                         unsafe_allow_html=True)
     por_tipo = res.get("por_tipo") or {}
     if por_tipo:
