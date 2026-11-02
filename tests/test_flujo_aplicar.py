@@ -874,6 +874,26 @@ class MainOrquestador(unittest.TestCase):
         finally:
             sd.X.leer_del_sheet, sd.SIN_EXCLUSIONES = guardado
 
+    def test_sin_separar_por_tipo_las_filas_sin_tipo_se_procesan_con_todos_los_department(self):
+        filas = [{"__row_idx__": 2, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C1", "TIPO": "", "ESTADO": "PENDIENTE"},
+                 {"__row_idx__": 3, "LOCATION": "BUE", "SUPPLIER": "S1", "SERVICE TYPE": "GU", "CODIGO": "C2", "TIPO": "GRUPOS", "ESTADO": "PENDIENTE"}]
+        sd.cargar_hojas = lambda: (object(), filas, sd.COLS_INPUT + ["TIPO", "OBSERVACIONES", "TIMESTAMP"], None, None)
+        vistos = []
+        sd.procesar_fila_lectura = lambda d, ctx, row: (vistos.append((row["__row_idx__"], ctx["departamentos"])), ("obs", [], 1, {}))[1]
+        from common import tipo_reserva as T
+        guardado = sd.SEPARAR_TIPO
+        sd.MODO, sd.TIPO_RESERVAS = "lectura", "AMBOS"
+        try:
+            sd.SEPARAR_TIPO = False
+            sd.main()
+            self.assertEqual(vistos, [(2, None), (3, T.DEPARTAMENTOS_GRUPOS)])                          # sin TIPO: todos; una fila con TIPO conserva su filtro
+            vistos.clear()
+            sd.SEPARAR_TIPO = True
+            sd.main()
+            self.assertEqual(vistos[0], (2, T.DEPARTAMENTOS_FITS | T.DEPARTAMENTOS_GRUPOS | T.DEPARTAMENTOS_PROMO))   # como antes: solo los clasificados
+        finally:
+            sd.SEPARAR_TIPO = guardado
+
     def test_si_el_login_falla_no_se_hace_logout(self):
         def login_roto(d):
             raise AssertionError("Login falló")

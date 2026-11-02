@@ -199,7 +199,7 @@ def _analizar_reporte(contenido, sheet_url):
     filas = reporte_entrada.leer_reporte(contenido)
     _, en_hoja_filas = _leer_hoja(sheet_url)
     en_hoja = {L.clave_fila(f): f.get("ESTADO", "") for f in en_hoja_filas}
-    plan = reporte_entrada.armar_plan(filas, _tabla_provisorios(), en_hoja=en_hoja)
+    plan = reporte_entrada.armar_plan(filas, _tabla_provisorios(), en_hoja=en_hoja, separar_por_tipo=_separar_tipo())
     plan["pendientes_en_hoja"] = sum(1 for f in en_hoja_filas if E.clasificar_estado(f.get("ESTADO")) == "Pendiente")
     plan["conteo"] = E.contar_estados(en_hoja_filas)         # la hoja ya se leyó: de paso se actualiza la cola de trabajo
     plan["pend_tipo"] = E.contar_pendientes_por_tipo(en_hoja_filas)
@@ -212,7 +212,8 @@ def _cargar_a_la_hoja(plan, sheet_url):
     ya = {L.clave_fila(f) for f in filas}
     # una fila de la hoja sin TIPO (anterior a esa columna) cubre a los dos tipos
     nuevas = [f for f in reporte_entrada.filas_para_hoja(plan["a_cargar"])
-              if L.clave_fila(f) not in ya and L.clave_fila(f)[:4] + ("",) not in ya]
+              if L.clave_fila(f) not in ya and L.clave_fila(f)[:4] + ("",) not in ya
+              and not (not f.get("TIPO") and any(k[:4] == L.clave_fila(f)[:4] for k in ya))]     # sin separar: la combinación con cualquier TIPO ya está
     asegurar_columnas_tolerante(ws, COLS_HOJA)
     n = agregar_filas_batch(ws, ws.row_values(1), nuevas)
     # Fechas de los servicios: las del reporte (primer y último servicio de lo cargado). Si ya había pendientes se amplía el rango anterior.
@@ -425,8 +426,12 @@ def dialogo_configuracion():
         headless = st.checkbox("Correr sin ventana de Chrome visible (no recomendado: no vas a poder mirar el modal)",
                                value=bool(cfg.get("headless", False)))
         con_avisos = st.checkbox("Avisarme al terminar una corrida (notificación de escritorio y sonido)", value=bool(cfg.get("avisos", True)))
+        separar = st.checkbox("Separar las reservas por tipo (FITS / GRUPOS) al cargar y ejecutar", value=bool(cfg.get("separar_tipo", False)),
+                              help="Apagado (lo normal): se procesa todo junto, con todos los Department. Encendido: cada combinación se separa en FITS y GRUPOS (por Department) "
+                                   "y se elige qué tipo correr. Sirve como freno de emergencia si la venta vuelve a cambiar en un tipo de reservas.")
         if st.form_submit_button("Guardar", type="primary"):
-            cfg.update({"tp_usuario": usuario, "tp_password": password, "headless": headless, "tp_base_url": url_tp.strip(), "avisos": con_avisos})
+            cfg.update({"tp_usuario": usuario, "tp_password": password, "headless": headless, "tp_base_url": url_tp.strip(), "avisos": con_avisos,
+                        "separar_tipo": separar})
             cfg.setdefault("sheet_urls", {})[CLAVE_SHEET] = sheet
             user_config.guardar(cfg)
             st.rerun()
@@ -444,7 +449,8 @@ previa y **Confirmar**. Nada se escribe en el Sheet hasta que confirmes. Las fec
 (reserva + fecha + código) no se procesan, y el resto de la combinación sí. Se informan al final con su motivo para actualizarlas a mano. La lista tiene que ser de hoy, o confirmar que no hay.
 
 **2. Elegir el modo y el tipo de reservas.** **Solo revisar** lee y muestra qué se procesaría, sin modificar nada. **Aplicar cambios** hace la sustitución real
-y modifica reservas en Tourplan. El tipo (**FITS**, **GRUPOS** o **AMBOS**) decide qué reservas se procesan en esta corrida.
+y modifica reservas en Tourplan. Si en la configuración activaste *Separar por tipo*, también elegís qué reservas
+procesar (**FITS**, **GRUPOS** o **AMBOS**); si no, se procesa todo junto.
 
 **3. Adjuntar el PRE (solo en Aplicar).** Es el reporte *Product Analysis* exportado de Tourplan **antes** de ejecutar, con las mismas fechas y filtros. La app
 verifica que cubra todo lo que se va a procesar y lo guarda para compararlo después.
@@ -460,6 +466,11 @@ venta. Las líneas con venta modificada son las que hay que corregir en Tourplan
         st.markdown("**Estados en la columna ESTADO del Sheet**\n\n" + glosario.markdown_estados())
     with st.expander("Qué significa cada resultado de la comparación"):
         st.markdown(glosario.markdown_comparacion())
+
+
+def _separar_tipo():
+    """¿Se separan las reservas por tipo (FITS / GRUPOS)? Apagado por defecto: se procesa todo junto, con todos los Department. Se activa en la configuración."""
+    return bool(user_config.cargar().get("separar_tipo", False))
 
 
 def _url_tourplan():
@@ -776,7 +787,7 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None), exc
     if pend is None:
         items.append(("neutro", "Combinaciones pendientes: sin leer todavía (tocá Refrescar en la cola)"))
     else:
-        items.append(("ok" if pend > 0 else "no", f"Combinaciones pendientes en el Sheet ({_h(p['tipo_reservas'])}): <b>{pend}</b>"))
+        items.append(("ok" if pend > 0 else "no", f"Combinaciones pendientes en el Sheet{' (' + _h(p['tipo_reservas']) + ')' if p.get('separar_tipo') else ''}: <b>{pend}</b>"))
         if pend == 0:
             faltan.append("combinaciones pendientes")
     if rango[0] and rango[1]:
@@ -843,7 +854,8 @@ def render_ejecutar(estado):
             st.success(estado.pop("aviso_carga"))
         if st.session_state.pop("_aviso_rango", False):
             st.warning("No pude guardar las fechas de los servicios en la pestaña PARAMETROS del Sheet. Completá DESDE y HASTA a mano antes de ejecutar.")
-        c1, c2, c3 = st.columns([1.1, 1, 1.25], gap="large")
+        separar = _separar_tipo()
+        c1, c2, c3 = st.columns([1.1, 1, 1.25] if separar else [1.1, 1, 0.01], gap="large")
         with c1:
             origen = _selector("origen", "Combinaciones a procesar", 1, ["pendientes", "reporte"],
                                lambda k: (f"Pendientes ({pend})" if pend is not None else "Pendientes") if k == "pendientes" else "Reporte nuevo",
@@ -851,8 +863,11 @@ def render_ejecutar(estado):
         with c2:
             modo = _selector("modo", "Modo", 2, ["lectura", "aplicar"], lambda m: ETIQUETA_MODO[m], bloqueado,
                              {"lectura": "Lectura. No modifica nada en Tourplan.", "aplicar": "Modifica reservas reales en Tourplan."})
-        with c3:
-            tipo_reservas = _selector("tipo_reservas", "Tipo de reservas", 3, list(T.MODOS), lambda t: TIPO_ETIQUETA[t], bloqueado)
+        if separar:
+            with c3:
+                tipo_reservas = _selector("tipo_reservas", "Tipo de reservas", 3, list(T.MODOS), lambda t: TIPO_ETIQUETA[t], bloqueado)
+        else:
+            tipo_reservas = T.TIPO_AMBOS           # sin separar por tipo: se procesan todas las filas y todos los Department
         if origen == "reporte":
             render_cargar_reporte(estado, bloqueado)
 
@@ -872,7 +887,8 @@ def render_ejecutar(estado):
         d_def, h_def = parametros_sheet.rango_por_defecto()
         p = {"modo": modo, "desde": (rango[0] or d_def).date(), "hasta": (rango[1] or h_def).date(), "sheet_url": _sheet_url_guardada(),
              "base_url": _url_tourplan(), "fila": 0, "confirmar_ok": False, "usuario": usuario, "password": password,
-             "pre_contenido": pre.getvalue() if pre else None, "tipo_reservas": tipo_reservas, "origen": origen}
+             "pre_contenido": pre.getvalue() if pre else None, "tipo_reservas": tipo_reservas, "origen": origen,
+             "separar_tipo": separar}
         info_x0 = estado.get("excl_info")
         lista_de_hoy = bool(info_x0 and info_x0[2] and info_x0[2].date() == datetime.now().date())
         pegada_ok = bool(info_x0 and not info_x0[2] and st.session_state.get("lista_actualizada"))                  # tabla pegada a mano y confirmada
@@ -1036,10 +1052,13 @@ def render_comparar(estado):
         if guardado and usar_guardado and pre_reporte.tipo_de_pre(guardado) and st.session_state.get("_tipo_cmp_origen") != guardado.name:
             st.session_state["tipo_comparacion"] = pre_reporte.tipo_de_pre(guardado)       # el PRE guardado dice qué tipo se corrió
             st.session_state["_tipo_cmp_origen"] = guardado.name
-        tipo_corrido = st.radio("Tipo de reservas que se corrió", list(T.MODOS), key="tipo_comparacion", horizontal=True,
-                                format_func=lambda t: TIPO_ETIQUETA[t],
-                                help="Las líneas del otro tipo no se tocaron: se usan como grupo de control (si la venta cambió ahí, la causa no es la "
-                                     "sustitución). Con un PRE guardado se completa solo; con AMBOS no se separa nada.")
+        if _separar_tipo():
+            tipo_corrido = st.radio("Tipo de reservas que se corrió", list(T.MODOS), key="tipo_comparacion", horizontal=True,
+                                    format_func=lambda t: TIPO_ETIQUETA[t],
+                                    help="Las líneas del otro tipo no se tocaron: se usan como grupo de control (si la venta cambió ahí, la causa no es la "
+                                         "sustitución). Con un PRE guardado se completa solo; con AMBOS no se separa nada.")
+        else:
+            tipo_corrido = T.TIPO_AMBOS
         c2.markdown('<span class="sd-etiqueta">Después (POST)</span>', unsafe_allow_html=True)
         c2.caption("Product Analysis exportado después de la corrida, con las mismas fechas y filtros que el PRE.")
         despues = c2.file_uploader("Reporte DESPUÉS (.csv)", type=["csv"], key="rep_despues", label_visibility="collapsed")
@@ -1159,6 +1178,8 @@ def main():
     sheet_url = _sheet_url_guardada()
 
     render_encabezado()
+    if not _separar_tipo():
+        st.session_state["tipo_reservas"] = T.TIPO_AMBOS
 
     # Vista (pestañas de texto): Ejecutar corrida / Comparar reportes. Se dibujan las dos y se oculta la inactiva (así no se pierde lo cargado,
     # como el PRE). La cola, la barra de corrida y la consola quedan fuera: se ven en las dos vistas y cambiar de vista no toca la corrida.

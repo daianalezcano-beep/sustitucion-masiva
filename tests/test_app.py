@@ -55,8 +55,9 @@ class App(unittest.TestCase):
             at.session_state["_corrida"] = estado
         return at.run()
 
-    def configurar(self, sheet="https://docs.google.com/spreadsheets/d/XYZ/edit"):
-        user_config.guardar({"tp_usuario": "daiana", "tp_password": "secreta", "headless": False, "avisos": False,
+    def configurar(self, sheet="https://docs.google.com/spreadsheets/d/XYZ/edit", separar=True):
+        """Configuración de la prueba. `separar`: «Separar por tipo» encendido (los tests del tipo de reservas) o apagado (el valor por defecto de la app)."""
+        user_config.guardar({"tp_usuario": "daiana", "tp_password": "secreta", "headless": False, "avisos": False, "separar_tipo": separar,
                              "sheet_urls": {"substitute_doble": sheet}})
 
     def boton(self, at, clave):
@@ -487,6 +488,30 @@ class App(unittest.TestCase):
         run_dir = Path(tempfile.mkdtemp())
         at = self.app(estado_falso(running=True, run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag"))
         self.assertNotIn("Costos manualizados (lista de exclusiones)", [e.label for e in at.expander])   # mientras corre no se toca
+
+    def test_por_defecto_no_se_separa_por_tipo_y_se_procesa_todo(self):
+        self.configurar(separar=False)
+        filas = [{"ESTADO": "PENDIENTE", "TIPO": ""}, {"ESTADO": "PENDIENTE", "TIPO": ""}, {"ESTADO": "PENDIENTE", "TIPO": "GRUPOS"}]
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=(filas, ["ESTADO", "TIPO"])), \
+             mock.patch("subprocess.Popen", ProcFalso):
+            at.run()
+            self.assertEqual([g.key for g in at.get("button_group") if g.key in ("origen", "modo", "tipo_reservas")], ["origen", "modo"])   # sin selector de tipo
+            self.assertEqual(at.session_state["tipo_reservas"], "AMBOS")
+            self.assertIn("Combinaciones pendientes en el Sheet: <b>3</b>", self.textos(at))          # cuenta todas, sin el tipo entre paréntesis
+            self.assertNotIn("sin TIPO", " ".join(c.value for c in at.caption))
+            self.boton(at, "ejecutar_revision").click().run()
+        env = ProcFalso.llamada[1]["env"]
+        self.assertEqual((env["TOURPLAN_TIPO_RESERVAS"], env["TOURPLAN_SEPARAR_TIPO"]), ("AMBOS", "0"))
+        self.assertFalse(any(r.key == "tipo_comparacion" for r in at.radio))                          # tampoco en el comparador
+
+    def test_con_el_interruptor_encendido_el_tipo_viaja_al_script_como_separado(self):
+        self.configurar(separar=True)
+        at = self.app()
+        with mock.patch("subprocess.Popen", ProcFalso):
+            self.boton(at, "ejecutar_revision").click().run()
+        self.assertEqual(ProcFalso.llamada[1]["env"]["TOURPLAN_SEPARAR_TIPO"], "1")
 
     def test_sin_configurar_no_se_puede_ejecutar(self):
         at = self.app()

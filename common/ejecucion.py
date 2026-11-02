@@ -71,6 +71,7 @@ def armar_entorno(p, base_env, repo_root, run_dir, ss_dir, stop_file, credential
         "TOURPLAN_FECHA_HASTA": L.fmt_ddmmyy(_como_datetime(p["hasta"])),
         "TOURPLAN_FILA": str(int(p["fila"])) if int(p.get("fila") or 0) > 0 else "",
         "TOURPLAN_PUDO_SERVICE_TYPES": ",".join(t.upper() for t in re.split(r"[,;\s]+", p.get("pudo_service_types") or "") if t),
+        "TOURPLAN_SEPARAR_TIPO": "1" if p.get("separar_tipo", True) else "0",
         "TOURPLAN_SIN_EXCLUSIONES": "1" if p.get("sin_exclusiones") else "0",
         "TOURPLAN_TIPO_RESERVAS": p.get("tipo_reservas") or T.TIPO_AMBOS,
         "TOURPLAN_CONFIRMAR_OK": "1" if p.get("confirmar_ok", True) else "0",

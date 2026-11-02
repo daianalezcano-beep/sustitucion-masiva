@@ -85,6 +85,21 @@ class ReporteEntrada(unittest.TestCase):
         self.assertEqual((p["descartadas"], p["resumen"]["Líneas de Department sin clasificar"]), ([], 0))
         self.assertEqual(R.filas_para_hoja(p["a_cargar"])[1]["TIPO"], "PROMO")
 
+    def test_sin_separar_por_tipo_una_fila_por_combinacion_con_todos_los_department(self):
+        lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Sanchez\n"
+                  "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAGP9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"
+                  "OT,1SANC9,30-Oct-2026,27-May-2026,GU,BUE,CT3ID,C x2,EABO9,KK,2,1,0,0,0,A,V,V,,Sanchez\n"     # BO: sin clasificar, ya no se descarta
+                  "OT,1SANC9,31-Oct-2026,27-May-2026,GU,BUE,CT3ID,D x2,EAPR9,KK,2,1,0,0,0,A,V,V,,Sanchez\n")
+        filas = R.leer_reporte((CAB + "\n" + lineas).encode("utf-8"))
+        p = R.armar_plan(filas, PROV, separar_por_tipo=False)
+        self.assertEqual([(c["TIPO"], c["RESERVAS"]) for c in p["a_cargar"]], [("", 4)])
+        self.assertEqual((p["descartadas"], p["resumen"]["Líneas de Department sin clasificar"]), ([], 0))
+        self.assertEqual(R.filas_para_hoja(p["a_cargar"])[0]["TIPO"], "")
+        self.assertEqual(len(R.armar_plan(filas, PROV, separar_por_tipo=True)["a_cargar"]), 3)         # con el interruptor encendido sigue separando
+        # si la combinación ya está en la hoja con cualquier TIPO, no se vuelve a cargar
+        p = R.armar_plan(filas, PROV, en_hoja={("BUE", "1SANC9", "GU", "CT3ID", "GRUPOS"): "OK"}, separar_por_tipo=False)
+        self.assertEqual((p["a_cargar"], len(p["descartadas"])), ([], 1))
+
     def test_en_hoja_distingue_el_tipo_y_una_fila_sin_tipo_cubre_a_los_dos(self):
         lineas = ("OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,A x2,EAFI9,OK,2,1,0,0,0,A,V,V,,Sanchez\n"
                   "OT,1SANC9,29-Oct-2026,27-May-2026,GU,BUE,CT3ID,B x2,EAGP9,KK,2,1,0,0,0,A,V,V,,Sanchez\n")

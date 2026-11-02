@@ -133,3 +133,8 @@ en `common/tipo_reserva.py`.
 
 **Ajuste (PR):** `PR` («Promoción Comercial Receptivo», referencias `EAPR`) son viajes de promoción que pueden ser individuales o de grupo. Dejan de descartarse: se cargan con
 `TIPO = PROMO` y se procesan en cualquier modo (FITS, GRUPOS o AMBOS) con su propio filtro Department (`PR`). Quedan sin clasificar solo `BO CF FL SL US AC RD` y el vacío.
+
+## 12. Se deja de separar por tipo (por defecto)
+La causa del problema en grupos era el sustituto con costo cero: al valorizarlo, la doble sustitución mantiene Retail y Agent también en grupos (confirmado en varias corridas en producción:
+la venta no cambió en ningún caso). La separación FITS / GRUPOS por Department queda **apagada por defecto** (interruptor en la configuración): se carga una fila por combinación y se procesan todos los
+Department (incluidos los que antes estaban sin clasificar). Se conserva como freno de emergencia si la venta vuelve a cambiar (por ejemplo, un cambio de versión de Tourplan).

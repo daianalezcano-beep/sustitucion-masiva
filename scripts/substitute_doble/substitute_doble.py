@@ -93,6 +93,8 @@ MODO = os.environ.get("TOURPLAN_MODO", "lectura")
 # Tipo de reservas a procesar: FITS, GRUPOS o AMBOS. Cada fila del Sheet tiene su TIPO y se procesa con el filtro Department de ese tipo
 # (ver common/tipo_reserva.py); las filas anteriores a la columna TIPO (vacías) solo se procesan en AMBOS.
 TIPO_RESERVAS = os.environ.get("TOURPLAN_TIPO_RESERVAS", T.TIPO_AMBOS).strip().upper() or T.TIPO_AMBOS
+# Separar por tipo de reservas (FITS / GRUPOS por Department): si está apagado, las filas sin TIPO se procesan con todos los Department tildados.
+SEPARAR_TIPO = os.environ.get("TOURPLAN_SEPARAR_TIPO", "1").strip() in ("1", "true", "True")
 # Si la persona confirmó que no hay costos manualizados, la pestaña EXCLUSIONES (que puede tener una lista vieja) se ignora.
 SIN_EXCLUSIONES = os.environ.get("TOURPLAN_SIN_EXCLUSIONES", "0").strip() in ("1", "true", "True")
 SHEET_URL = os.environ.get("TOURPLAN_SHEET_URL", "")
@@ -1671,7 +1673,7 @@ def main():
         raise SystemExit(f"MODO='{MODO}' no válido: usar lectura o aplicar.")
     if TIPO_RESERVAS not in T.MODOS:
         raise SystemExit(f"TOURPLAN_TIPO_RESERVAS='{TIPO_RESERVAS}' no válido: usar FITS, GRUPOS o AMBOS.")
-    print(f"  Tipo de reservas: {TIPO_RESERVAS}")
+    print(f"  Tipo de reservas: {TIPO_RESERVAS}" + ("" if SEPARAR_TIPO else " (sin separar por tipo: todos los Department)"))
     if MODO == "aplicar":
         print(f"⚠⚠⚠  MODO APLICAR: este script MODIFICA reservas en Tourplan ({tp.BASE_URL}).")
     if not SHEET_URL:
@@ -1777,7 +1779,8 @@ def main():
         for row in unicas:
             chequear_abort()
             idx = row["__row_idx__"]
-            ctx["departamentos"] = T.departamentos_para(T.normalizar_tipo(row.get("TIPO")))     # filtro Department de esta fila
+            tipo_fila = T.normalizar_tipo(row.get("TIPO"))
+            ctx["departamentos"] = None if (not SEPARAR_TIPO and not tipo_fila) else T.departamentos_para(tipo_fila)   # filtro Department de esta fila (None: todos)
             print(f"\n{'─' * 70}\nFila {idx}: {row.get('LOCATION')}/{row.get('SUPPLIER')}/"
                   f"{row.get('SERVICE TYPE')}/{row.get('CODIGO')}" + (f" [{row.get('TIPO')}]" if row.get("TIPO") else ""))
             try:

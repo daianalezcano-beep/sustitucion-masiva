@@ -57,11 +57,12 @@ def segundos_estimados(combinaciones):
     return int(total)
 
 
-def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLUIDOS):
+def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLUIDOS, separar_por_tipo=True):
     """filas: líneas del reporte. provisorios: {(LOCATION, SERVICE TYPE): proveedor}. en_hoja: {(LOCATION, SUPPLIER,
     SERVICE TYPE, CODIGO, TIPO): ESTADO} de lo que ya está en la hoja SUBSTITUTE (la clave puede venir sin TIPO: filas anteriores a esa
     columna, que cubren FITS y GRUPOS). Cada combinación se separa por TIPO (FITS / GRUPOS) según el Department de la Reference de cada
-    reserva; las reservas de un Department sin clasificar quedan descartadas. Devuelve {'resumen', 'a_cargar', 'descartadas'}."""
+    reserva; las reservas de un Department sin clasificar quedan descartadas. Con `separar_por_tipo=False` no se separa ni se clasifica: una sola fila por
+    combinación, sin TIPO, con las reservas de todos los Department. Devuelve {'resumen', 'a_cargar', 'descartadas'}."""
     claves_hoja = {}
     for k, v in (en_hoja or {}).items():
         k = tuple(_n(x) for x in k)
@@ -82,10 +83,10 @@ def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLU
             incompletas += 1
             continue
         dep = T.departamento_de(f.get("Reference"))
-        tipo = T.tipo_de_departamento(dep)
+        tipo = T.tipo_de_departamento(dep) if separar_por_tipo else ""
         if tipo is None:
             sin_clasificar += 1
-        g = grupos.setdefault(clave + (tipo or "SIN CLASIFICAR",), {"estados": Counter(), "fechas": [], "deps": set()})
+        g = grupos.setdefault(clave + ("" if not separar_por_tipo else (tipo or "SIN CLASIFICAR"),), {"estados": Counter(), "fechas": [], "deps": set()})
         g["deps"].add(dep or "(vacío)")
         g["estados"][estado or "(vacío)"] += 1
         d = C.fecha(f.get("Service Date", ""))
@@ -103,10 +104,13 @@ def armar_plan(filas, provisorios, en_hoja=None, estados_excluidos=ESTADOS_EXCLU
         motivo = None
         if CODIGO_GENERICO.fullmatch(cod):
             motivo = "Código genérico (valor cero, se manualiza)"
-        elif tipo not in T.TIPOS_DE_FILA:
+        elif separar_por_tipo and tipo not in T.TIPOS_DE_FILA:
             motivo = f"Department sin clasificar ({', '.join(sorted(g['deps']))}): no se procesa hasta clasificarlo"
         elif L.provisorio_para(loc, stype, provisorios) is None:
             motivo = f"Sin provisorio definido para {loc}/{stype}"
+        elif not separar_por_tipo and any(k[:4] == (loc, sup, stype, cod) for k in en_hoja):
+            tipos_hoja = [k[4] for k in en_hoja if k[:4] == (loc, sup, stype, cod)]
+            motivo = f"Ya está en la hoja (estado: {en_hoja[(loc, sup, stype, cod, tipos_hoja[0])] or 'vacío'})"
         elif (loc, sup, stype, cod, tipo) in en_hoja or (loc, sup, stype, cod, "") in en_hoja:
             motivo = f"Ya está en la hoja (estado: {en_hoja.get((loc, sup, stype, cod, tipo), en_hoja.get((loc, sup, stype, cod, ''))) or 'vacío'})"
         (descartadas if motivo else a_cargar).append(dict(fila, MOTIVO=motivo) if motivo else fila)
