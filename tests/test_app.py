@@ -436,7 +436,7 @@ class App(unittest.TestCase):
         at.session_state["modo"] = "aplicar"
         at.run()
         self.assertIn("sin_manuales", [c.key for c in at.checkbox])                              # no hace falta adjuntar nada: alcanza con tildar
-        self.assertIn("Costos manualizados: cargá la lista de hoy o tildá «no hay» (sección Costos manualizados)", self.textos(at))
+        self.assertIn("Costos manualizados: pegá la lista en la pestaña EXCLUSIONES o tildá «no hay» (sección Costos manualizados)", self.textos(at))
         at.checkbox(key="sin_manuales").check().run()
         self.assertIn("Costos manualizados: <b>confirmaste que no hay</b> (no se usa ninguna lista)", self.textos(at))
         from common import ejecucion as E
@@ -483,8 +483,7 @@ class App(unittest.TestCase):
         self.configurar()
         at = self.app()
         self.assertIn("Costos manualizados (lista de exclusiones)", [e.label for e in at.expander])
-        self.assertIn("rep_excl", [u.key for u in at.get("file_uploader")])
-        self.assertTrue(self.boton(at, "analizar_excl").disabled)                                      # sin archivo no se analiza
+        self.assertNotIn("rep_excl", [u.key for u in at.get("file_uploader")])                          # la lista se pega en el Sheet: no se adjunta
         run_dir = Path(tempfile.mkdtemp())
         at = self.app(estado_falso(running=True, run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag"))
         self.assertNotIn("Costos manualizados (lista de exclusiones)", [e.label for e in at.expander])   # mientras corre no se toca
@@ -542,7 +541,7 @@ class App(unittest.TestCase):
         self.assertNotIn("confirmar_ok", [c.key for c in at.checkbox])
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])
         self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
-        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE · costos manualizados: cargar la lista de hoy o tildar «no hay costos manualizados» (en la sección Costos manualizados) · confirmar el modo Aplicar.",
+        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE · costos manualizados: pegar la lista en la pestaña EXCLUSIONES o tildar «no hay costos manualizados» (en la sección Costos manualizados) · confirmar el modo Aplicar.",
                       self.textos(at))
         self.assertIn("sin_manuales", [c.key for c in at.checkbox])
         at.checkbox(key="confirmo").check().run()

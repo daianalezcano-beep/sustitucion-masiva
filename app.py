@@ -446,8 +446,8 @@ def dialogo_guia():
 previa y **Confirmar**. Nada se escribe en el Sheet hasta que confirmes. Las fechas de los servicios se guardan solas en la pestaña **PARAMETROS** del Sheet
 (*DESDE* y *HASTA*); si cargás combinaciones a mano, completalas ahí.
 
-**Costos manualizados.** Antes de aplicar, abrí *Costos manualizados (lista de exclusiones)* y subí la lista de Tourplan de servicios con Override. Las líneas que coincidan
-(reserva + fecha + código) no se procesan, y el resto de la combinación sí. Se informan al final con su motivo para actualizarlas a mano. La lista tiene que ser de hoy, o confirmar que no hay.
+**Costos manualizados.** Antes de aplicar, pegá en la pestaña *EXCLUSIONES* del Sheet la lista de Tourplan de servicios con Override (tal cual, con sus encabezados). Las líneas que coincidan
+(reserva + fecha + código) no se procesan, y el resto de la combinación sí. Se informan al final con su motivo para actualizarlas a mano. Hay que confirmar que la lista está actualizada, o que no hay.
 
 **2. Elegir el modo.** **Solo revisar** lee y muestra qué se procesaría, sin modificar nada. **Aplicar cambios** hace la sustitución real
 y modifica reservas en Tourplan. Se procesan todas las reservas juntas (si en la configuración activaste *Separar por tipo*, también elegís cuáles:
@@ -630,39 +630,16 @@ def _seccion(numero, titulo):
     st.markdown(f'<div class="sd-seccion"><span class="sd-num">{numero}</span>{_h(titulo)}</div>', unsafe_allow_html=True)
 
 
-def _analizar_exclusiones(contenido, nombre, sheet_url):
-    """Lee la lista de costos manualizados y la cruza con las filas PENDIENTE del Sheet para mostrar el impacto antes de guardarla."""
-    lista = exclusiones.leer_lista(contenido, nombre)
-    _, filas = _leer_hoja(sheet_url)
-    por_comb = exclusiones.por_combinacion(lista["lineas"])
-    pendientes = [f for f in filas if E.clasificar_estado(f.get("ESTADO")) == "Pendiente"]
-    afectadas = [f for f in pendientes if exclusiones.lineas_que_excluyen(f, por_comb)]
-    lista["combinaciones"] = len(por_comb)
-    lista["pendientes_afectadas"] = len(afectadas)
-    lista["pendientes"] = len(pendientes)
-    return lista
-
-
-def _guardar_exclusiones(lineas, sheet_url, estado):
-    """Reemplaza la pestaña EXCLUSIONES por esta lista y actualiza lo que muestra la app."""
-    ws = conectar_sheets(sheet_url, "SUBSTITUTE", user_config.CREDENTIALS_PATH, user_config.TOKEN_PATH)
-    exclusiones.guardar_en_el_sheet(ws, lineas)
-    guardadas = exclusiones.leer_del_sheet(ws)
-    estado["excl_info"] = ((len(guardadas), len(exclusiones.por_combinacion(guardadas)), exclusiones.fecha_de_carga(guardadas), len(guardadas.invalidas))
-                           if (guardadas or guardadas.invalidas) else None)
-
-
 def render_exclusiones(estado, bloqueado, aplicar=False):
     """Lista de servicios con costo manualizado (Override): las combinaciones que la tengan no se procesan."""
-    st.caption("Exportá de Tourplan la lista de servicios con costo manualizado (Override = Yes), con las columnas **Bkg. Reference, Srv. Date, Voucher #, Srv. Type, "
-               "Opt. Description, Override y Full option code** (CSV, TSV o Excel). En cada combinación, las líneas que coincidan (reserva + fecha + código) **no se "
-               "procesan**; las demás sí. Si en Tourplan hay más líneas iguales que en la lista, se excluyen todas. Se informan al final de la corrida con su motivo "
-               "para revisarlas a mano. Al guardar, la lista anterior se reemplaza. **También podés pegar la tabla de Tourplan tal cual en la pestaña EXCLUSIONES "
-               "del Sheet** (con sus encabezados): el script la lee de ahí.")
+    st.caption("Pegá en la pestaña **EXCLUSIONES** del Sheet la tabla de Tourplan de servicios con costo manualizado (Override = Yes), tal cual, con sus encabezados "
+               "(**Bkg. Reference, Srv. Date, Voucher #, Srv. Type, Opt. Description, Override y Full option code**). En cada combinación, las líneas que coincidan "
+               "(reserva + fecha + código) **no se procesan**; las demás sí. Si en Tourplan hay más líneas iguales que en la lista, se excluyen todas. Se informan al "
+               "final de la corrida con su motivo para revisarlas a mano. Si no hay costos manualizados, dejá la pestaña vacía.")
     info = estado.get("excl_info")
     lista_de_hoy = bool(info and info[2] and info[2].date() == datetime.now().date())
     if aplicar and not lista_de_hoy:      # sin lista de hoy, en Aplicar se confirma acá que no hay costos manualizados (no hace falta cargar nada)
-        st.checkbox("**No hay costos manualizados** para excluir en esta corrida (no hace falta cargar ninguna lista)", key="sin_manuales", disabled=bloqueado)
+        st.checkbox("**No hay costos manualizados** para excluir en esta corrida (no hace falta pegar ninguna lista)", key="sin_manuales", disabled=bloqueado)
     pegada = bool(info and not info[2])          # tabla pegada a mano en la pestaña: no tiene fecha de carga
     if aplicar and pegada:
         st.checkbox("**La lista de la pestaña EXCLUSIONES está actualizada** (la copié hoy desde Tourplan)", key="lista_actualizada", disabled=bloqueado)
@@ -672,44 +649,7 @@ def render_exclusiones(estado, bloqueado, aplicar=False):
         if len(info) > 3 and info[3]:
             st.warning(f"{info[3]} fila(s) de la pestaña EXCLUSIONES no se pueden leer y no se tienen en cuenta (revisá que tengan referencia, fecha y código completo válidos).")
     else:
-        st.markdown("No hay lista guardada en el Sheet.")
-    sheet_url = _sheet_url_guardada()
-    archivo = st.file_uploader("Lista de costos manualizados", type=["csv", "tsv", "txt", "xlsx"], key="rep_excl", disabled=bloqueado,
-                               label_visibility="collapsed")
-    c1, c2, _ = st.columns([1.3, 1.3, 3])
-    if c1.button("Analizar lista", key="analizar_excl", disabled=not (archivo and sheet_url) or bloqueado):
-        try:
-            st.session_state["_analisis_excl"] = _analizar_exclusiones(archivo.getvalue(), archivo.name, sheet_url)
-        except Exception as e:
-            st.session_state["_analisis_excl"] = None
-            st.error(f"No pude leer la lista: {e}")
-    if info and c2.button("Vaciar la lista", key="vaciar_excl", type="tertiary", disabled=bloqueado, help="Borra la lista guardada en el Sheet (no hay costos manualizados)."):
-        try:
-            _guardar_exclusiones([], sheet_url, estado)
-            st.session_state["_analisis_excl"] = None
-            st.rerun()
-        except Exception as e:
-            st.error(f"No pude vaciar la lista: {e}")
-    a = st.session_state.get("_analisis_excl")
-    if not a:
-        return
-    m = st.columns(4)
-    m[0].metric("Líneas válidas", len(a["lineas"]))
-    m[1].metric("Combinaciones", a["combinaciones"])
-    m[2].metric("Combinaciones pendientes con líneas manualizadas", f"{a['pendientes_afectadas']} de {a['pendientes']}")
-    m[3].metric("Filas no válidas", len(a["invalidas"]))
-    if a["invalidas"]:
-        st.warning("Filas que no se pudieron leer (no se guardan): " + "; ".join(f"fila {n}: {motivo}" for n, motivo in a["invalidas"][:8]))
-    if a["lineas"]:
-        st.dataframe([{k: v for k, v in l.items()} for l in a["lineas"]], hide_index=True, use_container_width=True, height="content")
-    if st.button(f"✅ Guardar en el Sheet ({len(a['lineas'])} línea(s); reemplaza la lista anterior)", type="primary", key="guardar_excl", disabled=bloqueado):
-        try:
-            _guardar_exclusiones(a["lineas"], sheet_url, estado)
-            st.session_state["_analisis_excl"] = None
-            estado["aviso_carga"] = f"Lista de costos manualizados guardada: {len(a['lineas'])} línea(s) en {a['combinaciones']} combinación(es)."
-            st.rerun()
-        except Exception as e:
-            st.error(f"No pude guardar la lista en el Sheet: {e}")
+        st.markdown("La pestaña EXCLUSIONES del Sheet está vacía.")
 
 
 def render_cargar_reporte(estado, bloqueado):
@@ -818,8 +758,8 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None), exc
                               "(en la sección Costos manualizados)")
             else:
                 cuando = f" (la guardada es del {excl[2]:%d/%m})" if excl and excl[2] else ""
-                items.append(("no", "Costos manualizados: cargá la lista de hoy o tildá «no hay» (sección Costos manualizados)" + cuando))
-                faltan.append("costos manualizados: cargar la lista de hoy o tildar «no hay costos manualizados» (en la sección Costos manualizados)")
+                items.append(("no", "Costos manualizados: pegá la lista en la pestaña EXCLUSIONES o tildá «no hay» (sección Costos manualizados)" + cuando))
+                faltan.append("costos manualizados: pegar la lista en la pestaña EXCLUSIONES o tildar «no hay costos manualizados» (en la sección Costos manualizados)")
         if not confirmo:
             faltan.append("confirmar el modo Aplicar")
     return items, faltan
