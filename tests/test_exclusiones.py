@@ -98,6 +98,35 @@ class Lista(unittest.TestCase):
         self.assertEqual(X.clave_de_resultado(self.fila_results(" eagr1 ", "02/Nov/2026"))[:2], ("EAGR1", "02/11/2026"))
         self.assertEqual(X.clave_para_pantalla(self.fila_results("EAGR1", "02/Nov/2026")), "EAGR1|02/NOV/2026|BUE|TR|1TEP01|EZHT19")
 
+    def test_lee_la_tabla_de_tourplan_pegada_tal_cual_en_la_pestana(self):
+        class Hoja:
+            title = "EXCLUSIONES"
+
+            def get_all_values(self):
+                return [f.split("\t") for f in [CAB] + FILAS] + [[""] * 15]                         # incluye una fila vacía al final, como suele quedar al pegar
+
+        ws = type("W", (), {"spreadsheet": type("L", (), {"worksheets": lambda self: [Hoja()]})()})()
+        lineas = X.leer_del_sheet(ws)
+        self.assertEqual(len(lineas), 3)                                                              # Override = No no cuenta
+        self.assertEqual((lineas[0]["REFERENCE"], lineas[0]["CODIGO"], lineas[0]["TIPO"]), ("EAPR251948", "CT437", "PROMO"))
+        self.assertEqual(list(lineas.invalidas), [])
+        self.assertIsNone(X.fecha_de_carga(lineas))                                                   # pegada a mano: no tiene fecha de carga
+        self.assertEqual(len(X.por_combinacion(lineas)), 2)
+
+    def test_las_filas_pegadas_que_no_se_pueden_leer_se_informan(self):
+        class Hoja:
+            title = "EXCLUSIONES"
+
+            def get_all_values(self):
+                mala = FILAS[0].replace("BUETR1TEP01CT437", "BUE")
+                return [f.split("\t") for f in [CAB, mala, FILAS[1]]]
+
+        ws = type("W", (), {"spreadsheet": type("L", (), {"worksheets": lambda self: [Hoja()]})()})()
+        lineas = X.leer_del_sheet(ws)
+        self.assertEqual(len(lineas), 1)
+        self.assertEqual(len(lineas.invalidas), 1)
+        self.assertIn("código completo no válido", lineas.invalidas[0][1])
+
     def test_guardar_y_leer_en_el_sheet(self):
         class Hoja:
             def __init__(self, titulo):

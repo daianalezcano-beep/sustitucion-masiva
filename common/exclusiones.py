@@ -77,7 +77,11 @@ def partir_codigo_completo(codigo):
 def leer_lista(contenido, nombre=""):
     """Lee la lista de exclusiones. Devuelve {'lineas': [...], 'invalidas': [(n.º de fila, motivo)], 'total': filas leídas}. Cada línea es un dict con
     las COLUMNAS (sin CARGADA). Si hay columna Override, solo cuentan las filas con «Yes»."""
-    filas = _filas_del_archivo(contenido, nombre)
+    return _filas_a_lista(_filas_del_archivo(contenido, nombre))
+
+
+def _filas_a_lista(filas):
+    """Filas de texto (la primera es la cabecera de la tabla de Tourplan) -> el mismo resultado que leer_lista()."""
     if not filas:
         raise ValueError("El archivo no tiene filas.")
     cabecera = [_norm(c) for c in filas[0]]
@@ -208,24 +212,36 @@ def _hoja(ws, crear=False):
     return sh.add_worksheet(title=HOJA, rows=100, cols=len(COLUMNAS))
 
 
+class ListaLineas(list):
+    """Líneas leídas del Sheet; `invalidas` trae las filas que no se pudieron leer ([(n.º de fila, motivo)])."""
+    invalidas = ()
+
+
 def leer_del_sheet(ws_substitute):
-    """Líneas guardadas en la pestaña EXCLUSIONES (lista de dicts con las COLUMNAS); [] si no hay pestaña o no se pudo leer."""
+    """Líneas de la pestaña EXCLUSIONES (lista de dicts con las COLUMNAS); vacía si no hay pestaña o no se pudo leer. La pestaña puede tener el formato que guarda la
+    app o la tabla de Tourplan pegada tal cual (con Bkg. Reference, Srv. Date, Override y Full option code): en ese caso no hay fecha de carga."""
     try:
         h = _hoja(ws_substitute)
         if h is None:
-            return []
+            return ListaLineas()
         valores = h.get_all_values()
         if len(valores) < 2:
-            return []
-        cab = [_norm(c).upper() for c in valores[0]]
-        out = []
+            return ListaLineas()
+        cab_raw = [_norm(c) for c in valores[0]]
+        if any(a in cab_raw for a in _ALIAS["codigo_completo"]):           # tabla de Tourplan pegada a mano
+            leida = _filas_a_lista(valores)
+            out = ListaLineas({**l, "CARGADA": ""} for l in leida["lineas"])
+            out.invalidas = tuple(leida["invalidas"])
+            return out
+        cab = [c.upper() for c in cab_raw]
+        out = ListaLineas()
         for f in valores[1:]:
             d = {c: (f[cab.index(c)].strip() if c in cab and cab.index(c) < len(f) else "") for c in [x.upper() for x in COLUMNAS]}
             if d["REFERENCE"] and d["CODIGO"]:
                 out.append({k: d.get(k, "") for k in [x.upper() for x in COLUMNAS]})
         return out
     except Exception:
-        return []
+        return ListaLineas()
 
 
 def guardar_en_el_sheet(ws_substitute, lineas, ahora=None):

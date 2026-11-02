@@ -453,6 +453,22 @@ class App(unittest.TestCase):
         fuera = [c.key for c in at.checkbox if c.key == "sin_manuales" and c not in list(self._aplanar(seccion))]
         self.assertEqual(fuera, [])                                                                    # y no suelta en la tarjeta
 
+    def test_lista_pegada_a_mano_en_el_sheet_pide_confirmar_que_esta_actualizada(self):
+        self.configurar()
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        at.session_state["_corrida"] = estado_falso(excl_info=(4, 3, None, 1), conteo={"Pendiente": 1, "OK": 0, "Error": 0, "Duplicado": 0, "Otro": 0},
+                                                    pend_tipo={"FITS": 1, "GRUPOS": 0, "PROMO": 0, "": 0})
+        at.session_state["modo"] = "aplicar"
+        at.run()
+        self.assertIn("lista_actualizada", [c.key for c in at.checkbox])
+        self.assertIn("Costos manualizados: confirmá que la lista de la pestaña EXCLUSIONES está actualizada", self.textos(at))
+        self.assertIn("pegada a mano: sin fecha de carga", self.textos(at))
+        self.assertIn("1 fila(s) de la pestaña EXCLUSIONES no se pueden leer", " ".join(w.value for w in at.warning))
+        at.checkbox(key="lista_actualizada").check().run()
+        self.assertIn("confirmada como actualizada", self.textos(at))
+        self.assertNotIn("Falta revisar", self.textos(at))
+        self.assertNotIn("costos manualizados: confirmar que la lista", self.textos(at))               # ya no falta
+
     def test_el_resumen_de_excluidas_aparece_al_terminar(self):
         self.configurar()
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)

@@ -1732,7 +1732,12 @@ def main():
     # Costos manualizados (pestaña EXCLUSIONES del Sheet): las filas de Results que coincidan con una línea de la lista (referencia + fecha + código) se
     # excluyen de la sustitución y se informan al final; los demás files de la combinación se procesan.
     try:
-        exclusiones = {} if SIN_EXCLUSIONES else X.por_combinacion(X.leer_del_sheet(ws))
+        lineas_x = [] if SIN_EXCLUSIONES else X.leer_del_sheet(ws)
+        exclusiones = X.por_combinacion(lineas_x)
+        invalidas_x = list(getattr(lineas_x, "invalidas", ()))
+        if invalidas_x:
+            print(f"⚠ {len(invalidas_x)} fila(s) de la pestaña EXCLUSIONES no se pudieron leer y NO se tienen en cuenta: "
+                  + "; ".join(f"fila {n}: {motivo}" for n, motivo in invalidas_x[:5]))
     except Exception:
         exclusiones = {}
     if SIN_EXCLUSIONES:
