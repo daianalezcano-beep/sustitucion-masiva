@@ -435,7 +435,7 @@ class App(unittest.TestCase):
         at.session_state["modo"] = "aplicar"
         at.run()
         self.assertIn("sin_manuales", [c.key for c in at.checkbox])                              # no hace falta adjuntar nada: alcanza con tildar
-        self.assertIn("Costos manualizados: cargá la lista de hoy o tildá «no hay»", self.textos(at))
+        self.assertIn("Costos manualizados: cargá la lista de hoy o tildá «no hay» (sección Costos manualizados)", self.textos(at))
         at.checkbox(key="sin_manuales").check().run()
         self.assertIn("Costos manualizados: <b>confirmaste que no hay</b> (no se usa ninguna lista)", self.textos(at))
         from common import ejecucion as E
@@ -443,6 +443,15 @@ class App(unittest.TestCase):
              "hasta": datetime(2049, 12, 31).date(), "fila": 0, "sin_exclusiones": True}
         self.assertEqual(E.armar_entorno(p, {}, "/r", "/r/run", "/r/s", "/r/stop", "/c", "/t")["TOURPLAN_SIN_EXCLUSIONES"], "1")
         self.assertEqual(E.armar_entorno(dict(p, sin_exclusiones=False), {}, "/r", "/r/run", "/r/s", "/r/stop", "/c", "/t")["TOURPLAN_SIN_EXCLUSIONES"], "0")
+
+    def test_la_casilla_no_hay_costos_manualizados_esta_en_la_seccion_de_costos_manualizados(self):
+        self.configurar()
+        at = self.app()
+        self.elegir(at, "modo", "aplicar")
+        seccion = next(e for e in at.expander if e.label == "Costos manualizados (lista de exclusiones)")
+        self.assertIn("sin_manuales", [c.key for c in self._aplanar(seccion) if getattr(c, "key", None)])
+        fuera = [c.key for c in at.checkbox if c.key == "sin_manuales" and c not in list(self._aplanar(seccion))]
+        self.assertEqual(fuera, [])                                                                    # y no suelta en la tarjeta
 
     def test_el_resumen_de_excluidas_aparece_al_terminar(self):
         self.configurar()
@@ -492,7 +501,7 @@ class App(unittest.TestCase):
         self.assertNotIn("confirmar_ok", [c.key for c in at.checkbox])
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])
         self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
-        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE · costos manualizados: cargar la lista de hoy o tildar «no hay costos manualizados» · confirmar el modo Aplicar.",
+        self.assertIn("Para ejecutar falta: adjuntar el reporte PRE · costos manualizados: cargar la lista de hoy o tildar «no hay costos manualizados» (en la sección Costos manualizados) · confirmar el modo Aplicar.",
                       self.textos(at))
         self.assertIn("sin_manuales", [c.key for c in at.checkbox])
         at.checkbox(key="confirmo").check().run()

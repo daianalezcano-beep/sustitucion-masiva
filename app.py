@@ -637,13 +637,16 @@ def _guardar_exclusiones(lineas, sheet_url, estado):
     estado["excl_info"] = (len(guardadas), len(exclusiones.por_combinacion(guardadas)), exclusiones.fecha_de_carga(guardadas)) if guardadas else None
 
 
-def render_exclusiones(estado, bloqueado):
+def render_exclusiones(estado, bloqueado, aplicar=False):
     """Lista de servicios con costo manualizado (Override): las combinaciones que la tengan no se procesan."""
     st.caption("Exportá de Tourplan la lista de servicios con costo manualizado (Override = Yes), con las columnas **Bkg. Reference, Srv. Date, Voucher #, Srv. Type, "
                "Opt. Description, Override y Full option code** (CSV, TSV o Excel). En cada combinación, las líneas que coincidan (reserva + fecha + código) **no se "
                "procesan**; las demás sí. Si en Tourplan hay más líneas iguales que en la lista, se excluyen todas. Se informan al final de la corrida con su motivo "
                "para revisarlas a mano. Al guardar, la lista anterior se reemplaza.")
     info = estado.get("excl_info")
+    lista_de_hoy = bool(info and info[2] and info[2].date() == datetime.now().date())
+    if aplicar and not lista_de_hoy:      # sin lista de hoy, en Aplicar se confirma acá que no hay costos manualizados (no hace falta cargar nada)
+        st.checkbox("**No hay costos manualizados** para excluir en esta corrida (no hace falta cargar ninguna lista)", key="sin_manuales", disabled=bloqueado)
     if info:
         cuando = f" (cargada el {info[2]:%d/%m/%Y %H:%M})" if info[2] else ""
         st.markdown(f"Lista guardada en el Sheet: **{info[0]}** línea(s) en **{info[1]}** combinación(es){cuando}.")
@@ -787,8 +790,8 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None), exc
             items.append(("ok", "Costos manualizados: <b>confirmaste que no hay</b> (no se usa ninguna lista)"))
         else:
             cuando = f" (la guardada es del {excl[2]:%d/%m})" if excl and excl[2] else ""
-            items.append(("no", "Costos manualizados: cargá la lista de hoy o tildá «no hay»" + cuando))
-            faltan.append("costos manualizados: cargar la lista de hoy o tildar «no hay costos manualizados»")
+            items.append(("no", "Costos manualizados: cargá la lista de hoy o tildá «no hay» (sección Costos manualizados)" + cuando))
+            faltan.append("costos manualizados: cargar la lista de hoy o tildar «no hay costos manualizados» (en la sección Costos manualizados)")
         if not confirmo:
             faltan.append("confirmar el modo Aplicar")
     return items, faltan
@@ -860,7 +863,7 @@ def render_ejecutar(estado):
 
         if not bloqueado:
             with st.expander("Costos manualizados (lista de exclusiones)"):
-                render_exclusiones(estado, bloqueado)
+                render_exclusiones(estado, bloqueado, aplicar)
         confirmo = bool(st.session_state.get("confirmo")) if aplicar else False
         sin_manuales = bool(st.session_state.get("sin_manuales")) if aplicar else False
         items, faltan = _verificar_requisitos(p, pend, pre.name if pre else None, confirmo, rango, estado.get("excl_info"), sin_manuales)
@@ -874,9 +877,6 @@ def render_ejecutar(estado):
             for aviso in E.advertencias(p):
                 st.caption(f"⚠️ {aviso}")
         if aplicar and not bloqueado:
-            info_x = estado.get("excl_info")
-            if not (info_x and info_x[2] and info_x[2].date() == datetime.now().date()):
-                st.checkbox("**No hay costos manualizados** para excluir en esta corrida (no hace falta cargar ninguna lista)", key="sin_manuales")
             with st.container(key="confirmo_aplicar"):
                 st.checkbox(":red[**Entiendo que esto modifica reservas reales.**] Se va a trabajar sobre Tourplan en producción.", key="confirmo")
         errores = E.validar_parametros(p)
