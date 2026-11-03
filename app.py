@@ -109,6 +109,16 @@ def html_consola(lineas, grande=False):
         cuerpo = '<div class="sd-linea sd-vacia">Sin salida todavía. Acá aparece la consola y sigue la última línea.</div>'
     return f'<div class="sd-consola{" grande" if grande else ""}">{cuerpo}</div>'
 
+def _vaciar_fechas_al_abrir(sheet_url):
+    """Al abrir la app, la pestaña PARAMETROS queda sin fechas: el rango que había era el de la corrida anterior y no corresponde a la nueva. Se completa al
+    analizar un reporte (la app lo escribe) o a mano en el Sheet. Si no se puede escribir, se sigue (el requisito de fechas queda según lo que haya)."""
+    try:
+        ws = conectar_sheets(sheet_url, "SUBSTITUTE", user_config.CREDENTIALS_PATH, user_config.TOKEN_PATH)
+        parametros_sheet.escribir_en_el_sheet(ws, None, None)
+    except Exception:
+        pass
+
+
 def _sheet_url_guardada():
     return user_config.cargar().get("sheet_urls", {}).get(CLAVE_SHEET, "")
 
@@ -824,7 +834,9 @@ def _verificar_requisitos(p, pend, pre_nombre, confirmo, rango=(None, None), exc
         if rango[0] > rango[1]:
             faltan.append("un rango de fechas válido en la pestaña PARAMETROS (DESDE no puede ser posterior a HASTA)")
     else:
-        items.append(("neutro", "Fechas de los servicios: sin definir en la pestaña PARAMETROS del Sheet (se sustituye de mañana en adelante)"))
+        items.append(("no", "Fechas de los servicios: sin definir. Completá DESDE y HASTA en la pestaña PARAMETROS del Sheet (o cargá un reporte nuevo)"))
+        if p.get("origen") != "reporte":          # con «Reporte nuevo» las fechas se completan al confirmar la carga: ahí alcanza con la pastilla del reporte
+            faltan.append("un rango de fechas: completá DESDE y HASTA en la pestaña PARAMETROS del Sheet")
     if p.get("origen") == "reporte":
         faltan.append("terminar la carga del reporte nuevo")
     if aplicar:
@@ -1362,6 +1374,7 @@ def main():
     # La primera vez que se abre la página se lee la hoja sola (después, al analizar un reporte o al confirmar una carga, y con Refrescar).
     if sheet_url and estado["conteo"] is None and not estado["conteo_error"] and not estado["running"] and not st.session_state.get("_conteo_inicial"):
         st.session_state["_conteo_inicial"] = True
+        _vaciar_fechas_al_abrir(sheet_url)
         _refrescar_conteo(estado, sheet_url)
 
     with st.container(key="fila_principal"):

@@ -33,7 +33,8 @@ class ProcFalso:
 def estado_falso(**kw):
     """Estado de la corrida (lo que guarda la app en st.session_state['_corrida']) con valores neutros."""
     e = {"running": False, "finished": False, "log_lines": [], "returncode": None, "proc": None, "stop_file": None, "run_dir": None,
-         "abort_pedido": False, "modo": "lectura", "inicio": 0, "mensaje": None, "conteo": None, "conteo_error": None, "aviso_cerrado": False}
+         "abort_pedido": False, "modo": "lectura", "inicio": 0, "mensaje": None, "conteo": None, "conteo_error": None, "aviso_cerrado": False,
+         "rango": (datetime(2026, 12, 1), datetime(2026, 12, 31))}          # el Sheet «tiene» fechas cargadas (es un requisito)
     e.update(kw)
     return e
 
@@ -45,14 +46,20 @@ class App(unittest.TestCase):
         self.guardado = (user_config.CONFIG_DIR, user_config.CONFIG_PATH)
         user_config.CONFIG_DIR = self.tmp
         user_config.CONFIG_PATH = os.path.join(self.tmp, "config.json")
+        # Por defecto el Sheet «tiene» un rango de fechas cargado (es un requisito) y escribir las fechas no hace nada; los tests de fechas lo cambian.
+        self.rango_sheet = mock.patch("common.parametros_sheet.leer_del_sheet", return_value=(datetime(2026, 12, 1), datetime(2026, 12, 31)))
+        self.escribe_sheet = mock.patch("common.parametros_sheet.escribir_en_el_sheet")
+        self.rango_sheet.start()
+        self.mock_escribe = self.escribe_sheet.start()
+        self.addCleanup(self.rango_sheet.stop)
+        self.addCleanup(self.escribe_sheet.stop)
 
     def tearDown(self):
         user_config.CONFIG_DIR, user_config.CONFIG_PATH = self.guardado
 
     def app(self, estado=None):
         at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
-        if estado is not None:
-            at.session_state["_corrida"] = estado
+        at.session_state["_corrida"] = estado if estado is not None else estado_falso()
         return at.run()
 
     def configurar(self, sheet="https://docs.google.com/spreadsheets/d/XYZ/edit", separar=True):
@@ -194,8 +201,7 @@ class App(unittest.TestCase):
         env = kw["env"]
         self.assertEqual((env["TOURPLAN_USERNAME"], env["TOURPLAN_PASSWORD"]), ("daiana", "secreta"))
         self.assertEqual((env["TOURPLAN_MODO"], env["TOURPLAN_FILA"], env["TOURPLAN_BASE_URL"]), ("lectura", "", "https://prueba.example/tp"))
-        self.assertEqual(env["TOURPLAN_FECHA_HASTA"], "31/12/49")
-        self.assertRegex(env["TOURPLAN_FECHA_DESDE"], r"^\d\d/\d\d/\d\d$")
+        self.assertEqual((env["TOURPLAN_FECHA_DESDE"], env["TOURPLAN_FECHA_HASTA"]), ("01/12/26", "31/12/26"))   # las del Sheet (PARAMETROS)
         self.assertEqual(env["TOURPLAN_SHEET_URL"], "https://docs.google.com/spreadsheets/d/XYZ/edit")
         self.assertEqual(env["TOURPLAN_PUDO_SERVICE_TYPES"], "")                                       # la app ya no pasa Service Types
         self.assertEqual(kw["stdin"], __import__("subprocess").DEVNULL)                                # nunca queda esperando una consola
@@ -415,11 +421,27 @@ class App(unittest.TestCase):
         env = ProcFalso.llamada[1]["env"]
         self.assertEqual((env["TOURPLAN_FECHA_DESDE"], env["TOURPLAN_FECHA_HASTA"]), ("01/12/26", "31/12/26"))
 
-    def test_sin_fechas_en_el_sheet_se_usa_de_manana_en_adelante_y_se_avisa(self):
+    def test_sin_fechas_en_el_sheet_el_requisito_queda_pendiente(self):
         self.configurar()
-        at = self.app()
-        at.session_state["_req_detalle"] = True; at.run()
-        self.assertIn("Fechas de los servicios: sin definir en la pestaña PARAMETROS", self.textos(at))
+        with mock.patch("common.parametros_sheet.leer_del_sheet", return_value=(None, None)):
+            at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+            at.session_state["_req_detalle"] = True                                      # detalle de requisitos desplegado
+            with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+                 mock.patch("common.sheets_client.cargar_sheet", return_value=([{"ESTADO": "PENDIENTE", "TIPO": "FITS"}], ["ESTADO", "TIPO"])):
+                at.run()
+        self.assertIn("Fechas de los servicios: sin definir. Completá DESDE y HASTA en la pestaña PARAMETROS", self.textos(at))
+        self.assertIn("🔒 Fechas", self.textos(at))
+        self.assertTrue(self.boton(at, "ejecutar_revision").disabled)                    # ya no se ejecuta «de mañana en adelante» sin querer
+
+    def test_al_abrir_la_app_se_vacian_las_fechas_de_la_corrida_anterior(self):
+        self.configurar()
+        at = AppTest.from_file(os.path.join(RAIZ, "app.py"), default_timeout=30)
+        with mock.patch("common.sheets_client.conectar_sheets", return_value=object()), \
+             mock.patch("common.sheets_client.cargar_sheet", return_value=([], ["ESTADO", "TIPO"])):
+            at.run()
+            at.run()                                                                     # un segundo rerun de la misma sesión no vuelve a borrar
+        self.mock_escribe.assert_called_once()
+        self.assertEqual(self.mock_escribe.call_args[0][1:], (None, None))
 
     def _aplicar_con_lista(self, excl_info, eleccion=None):
         self.configurar()

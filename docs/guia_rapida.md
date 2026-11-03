@@ -17,7 +17,7 @@ cancelados no entran en la corrida.
    - **Solo revisar:** lee y muestra qué se procesaría, sin modificar nada. Recomendado antes de aplicar.
    - **Aplicar cambios:** hace la sustitución real. **Exige adjuntar el reporte PRE** (Product Analysis exportado antes de la corrida, con las mismas fechas): la app verifica que cubra todas las combinaciones PENDIENTES y lo guarda para comparar después.
 3. Se procesan todas las reservas juntas. *(Opcional, solo si en ⚙️ Configuración activaste «Separar por tipo»: aparece el selector **FITS / GRUPOS / AMBOS** y cada combinación se separa por Department.)*
-4. No hay que poner fechas: se guardan solas en la pestaña **PARAMETROS** del Sheet al cargar un reporte (si cargás a mano, completá `DESDE` y `HASTA` ahí; sin fechas, de mañana en adelante). La URL de Tourplan está en ⚙️ Configuración; arriba, el chip dice si apunta a producción.
+4. Las fechas se guardan solas en la pestaña **PARAMETROS** del Sheet al cargar un reporte; si cargás las combinaciones a mano, completá `DESDE` y `HASTA` ahí **después de abrir la app** (al abrirla se vacían, porque eran las de la corrida anterior). Sin fechas no se puede ejecutar. La URL de Tourplan está en ⚙️ Configuración; arriba, el chip dice si apunta a producción.
 5. Revisá la lista de requisitos y tocá **Ejecutar revisión** (o **Aplicar en producción**, que además pide tildar la confirmación). Arriba queda una barra con el avance (el botón **Abortar** está al lado de Refrescar y en la barra); la barra muestra el tiempo restante estimado y, al terminar, la app avisa con una notificación y un sonido; la consola muestra el detalle, con la hora de cada paso. No toques la ventana de Chrome mientras corre.
    **Abortar** corta al terminar la combinación en curso.
 

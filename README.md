@@ -35,7 +35,7 @@ clon de git, y usa el `git` del PATH o el Git portátil de `C:\Users\daiana.lezc
   Lógica en `common/exclusiones.py`.
 - **Fechas de los servicios:** ya no se eligen en pantalla. Salen de la pestaña **PARAMETROS** del Sheet (dos celdas: `DESDE` en B1 y `HASTA` en B2, texto DD/MM/AAAA).
   Al confirmar la carga de un reporte la app las completa con el primer y el último servicio de lo cargado (con pendientes de antes, amplía el rango; sin ellos, lo reemplaza);
-  si se cargan combinaciones a mano, se completan a mano. Sin fechas, de mañana en adelante. Se releen al ejecutar. Lógica en `common/parametros_sheet.py`.
+  si se cargan combinaciones a mano, se completan a mano. **Al abrir la app, la app vacía DESDE y HASTA** (eran las de la corrida anterior) y las fechas son un requisito: se completan al confirmar un reporte o a mano en la pestaña; sin ellas no se puede ejecutar. Se releen al ejecutar. Ojo: si cargás las fechas a mano en el Sheet antes de abrir la app (o de recargar la página), se borran. Lógica en `common/parametros_sheet.py`.
 - **Aviso al terminar y tiempo restante:** al terminar (o detenerse) una corrida la app muestra una notificación de escritorio y suena (`common/avisos.py`, librería `plyer`; se
   desactiva en la configuración). La barra muestra «quedan ~X», estimado con el ritmo de las combinaciones terminadas (desde la tercera).
 - **Ayudas:** botón `?` junto al engranaje (guía paso a paso y glosarios), tooltips en los contadores de la cola y en las tarjetas del comparador, y glosario «¿Qué significa cada estado?»
