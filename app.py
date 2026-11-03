@@ -100,14 +100,14 @@ def _carpeta_de_salida(estado):
             return Path(m.group(1).strip())
     return None
 
-def html_consola(lineas):
+def html_consola(lineas, grande=False):
     """HTML de la consola: cada línea escapada, en orden inverso dentro de un contenedor column-reverse (la última
     línea queda abajo y visible). Todo en una sola línea para que Markdown no lo parta."""
     if lineas:
         cuerpo = "".join(f'<div class="sd-linea">{html.escape(l.rstrip(chr(10)))}</div>' for l in reversed(lineas[-500:]))
     else:
         cuerpo = '<div class="sd-linea sd-vacia">Sin salida todavía. Acá aparece la consola y sigue la última línea.</div>'
-    return f'<div class="sd-consola">{cuerpo}</div>'
+    return f'<div class="sd-consola{" grande" if grande else ""}">{cuerpo}</div>'
 
 def _sheet_url_guardada():
     return user_config.cargar().get("sheet_urls", {}).get(CLAVE_SHEET, "")
@@ -267,8 +267,8 @@ header[data-testid="stHeader"], [data-testid="stToolbar"] { background: transpar
 [data-testid="stElementContainer"]:has(style) { display: none !important; }   /* los bloques <style> no dejan renglón vacío */
 
 /* encabezado */
-.sd-titulo { font-size: 26px !important; font-weight: 600; line-height: 1.2; margin: 0 !important; }
-.sd-subtitulo { font-size: 13px !important; color: var(--sd-muted); margin: 0 !important; }
+.sd-titulo { font-size: 36px !important; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; margin: 14px 0 0 !important; }
+.sd-subtitulo { font-size: 17px !important; color: var(--sd-muted); margin: 2px 0 0 !important; }
 .sd-chips { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .sd-chip { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border: 1px solid var(--sd-line2); border-radius: 99px;
     background: var(--sd-surface); font-size: 13.5px; color: var(--sd-muted); white-space: nowrap; }
@@ -369,6 +369,11 @@ div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 
 .sd-reqs b { font-weight: 700; }
 .sd-reqs .ok { color: var(--sd-ok); } .sd-reqs .no { color: var(--sd-muted); }
 .st-key-tarjeta_aplicar .sd-reqs .no { color: var(--sd-danger); }
+.st-key-fila_costos div[data-testid="stHorizontalBlock"] { gap: 14px; }
+.st-key-fila_costos div[data-testid="stColumn"]:nth-child(1) { flex: 0 0 auto !important; width: auto !important; min-width: 0 !important; }
+.st-key-fila_costos div[data-testid="stColumn"]:nth-child(1) .sd-glab { white-space: nowrap; }
+.st-key-fila_costos div[data-testid="stColumn"]:nth-child(2) { flex: 0 0 190px !important; width: 190px !important; min-width: 0 !important; }
+.st-key-fila_costos div[data-testid="stColumn"]:nth-child(3) { flex: 1 1 0 !important; }
 .st-key-costos_manualizados { width: 100% !important; margin-bottom: 0; }
 .st-key-costos_manualizados [role="radiogroup"] { display: flex !important; width: 100%; gap: 0 !important; border: 1.5px solid var(--sd-line2); border-radius: 8px; overflow: hidden; background: var(--sd-surface); }
 .st-key-costos_manualizados button { flex: 1; min-height: 34px; border: 0 !important; border-left: 1px solid var(--sd-line2) !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; }
@@ -378,7 +383,6 @@ div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 
 .sd-franja { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 14px; margin-bottom: 2px; }
 .st-key-franja_aplicar, .st-key-franja_lectura, .st-key-estado_parametros { background: var(--sd-surface); border-radius: 10px; }
 .st-key-franja_aplicar { border-color: var(--sd-danger-line) !important; }
-.st-key-abortar_franja button { border-color: var(--sd-danger-solid); color: var(--sd-danger); font-weight: 600; }
 .sd-reqc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 14px; }
 .sd-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 99px; font-size: 13px; font-weight: 600; border: 1px solid; }
 .sd-pill.mal { color: var(--sd-danger); background: var(--sd-danger-bg); border-color: var(--sd-danger-line); }
@@ -420,6 +424,7 @@ div[data-testid="stColumn"]:has(.st-key-barra_lateral) { position: sticky; top: 
     background: var(--sd-con-bg); color: var(--sd-con-ink); border: 1px solid var(--sd-line); border-radius: 8px; padding: 8px 12px;
     font-family: "IBM Plex Mono", "Source Code Pro", "SFMono-Regular", Consolas, "Courier New", monospace; font-size: 12.5px; line-height: 21px;
 }
+.sd-consola.grande { height: clamp(260px, calc(100vh - 400px), 1000px); }     /* parámetros plegados (corrida en curso o terminada): la consola aprovecha el alto de la ventana */
 .sd-linea { white-space: pre-wrap; word-break: break-word; }
 .sd-vacia { color: var(--sd-muted); }
 </style>
@@ -576,7 +581,7 @@ def render_barra(estado):
         aplicar = estado["modo"] == "aplicar"
         minutos = max(0, int((time.time() - (estado["inicio"] or time.time())) // 60))
         hechas, total = _progreso(estado["log_lines"])
-        avance = f"Combinación {min(hechas, total)} de {total}" if total else "Iniciando…"
+        avance = (f"Combinación {hechas} de {total}" if hechas else f"Iniciando · {_n_combinaciones(total)} por procesar") if total else "Iniciando…"
         pct = int(min(max(hechas - 1, 0), total) / total * 100) if total else 0      # la combinación en curso todavía no cuenta
         if hechas >= 1 and not estado.get("t_primera"):
             estado["t_primera"] = time.time()                                          # desde acá se cuenta el ritmo (sin el login)
@@ -696,12 +701,9 @@ def render_cola(estado, sheet_url):
         st.markdown(f'<div class="sd-nota" style="margin-top:6px !important">Duplicado: {c["Duplicado"]} · Otro: {c["Otro"]}</div>', unsafe_allow_html=True)
     else:
         st.caption("Tocá Refrescar para ver cuántas filas hay Pendientes, OK o con Error.")
-    b1, b2 = st.columns(2)
-    if b1.button("🔄 Refrescar", disabled=estado["running"] or not sheet_url, use_container_width=True, key="refrescar"):
+    if st.button("🔄 Refrescar", disabled=estado["running"] or not sheet_url, use_container_width=True, key="refrescar"):
         _refrescar_conteo(estado, sheet_url)
         st.rerun()
-    b2.button("⏹ Abortar", key="abortar_cola", disabled=not estado["running"] or estado["abort_pedido"], use_container_width=True,
-              help="Corta al terminar la combinación en curso y hace logout de Tourplan.", on_click=_pedir_abortar, args=(estado,))
     with st.expander("¿Qué significa cada estado?"):
         st.markdown("**Cola de trabajo**\n\n" + glosario.markdown_cola())
         st.markdown("**Estados en la columna ESTADO del Sheet**\n\n" + glosario.markdown_estados())
@@ -717,7 +719,8 @@ def render_exclusiones(estado, bloqueado):
     """Fila «Costos manualizados» (solo en Aplicar): Hay / No hay. «Hay» = la lista está pegada en la pestaña EXCLUSIONES del Sheet y se usa; «No hay» = el script ignora
     esa pestaña. Sin opción elegida, el requisito queda pendiente."""
     info = estado.get("excl_info")
-    c_lab, c_ctl, c_txt = st.columns([1.5, 1.6, 5], vertical_alignment="center", gap="small")
+    with st.container(key="fila_costos"):
+        c_lab, c_ctl, c_txt = st.columns([1, 1, 4], vertical_alignment="center", gap="small")
     c_lab.markdown('<div class="sd-glab" style="margin:0">Costos manualizados</div>', unsafe_allow_html=True)
     with c_ctl:
         eleccion = st.segmented_control("Costos manualizados", ["hay", "no_hay"], key="costos_manualizados", default=None, required=False, disabled=bloqueado,
@@ -934,12 +937,9 @@ def render_franja(estado):
     if foto.get("usuario"):
         partes.append(foto["usuario"])
     with st.container(border=True, key=f"franja_{'aplicar' if aplicar else 'lectura'}"):
-        c1, c2 = st.columns([9, 1.4], vertical_alignment="center")
-        c1.markdown(f'<div class="sd-franja">{_insignia("APLICANDO" if aplicar else "REVISANDO", "apl" if aplicar else "rev")}'
-                    f'<b>{_h(" · ".join(partes))}</b></div>'
-                    '<div class="sd-nota">Los parámetros ya están completos: se ocultan mientras corre.</div>', unsafe_allow_html=True)
-        c2.button("⏹ Abortar", key="abortar_franja", disabled=estado["abort_pedido"], use_container_width=True,
-                  help="Corta al terminar la combinación en curso y hace logout de Tourplan.", on_click=_pedir_abortar, args=(estado,))
+        st.markdown(f'<div class="sd-franja"><b>{_h(" · ".join(partes))}</b></div>'
+                    '<div class="sd-nota">Los parámetros ya están completos: se ocultan mientras corre. Para cortar, usá Abortar en la barra de arriba.</div>',
+                    unsafe_allow_html=True)
 
 
 def render_estado_parametros(estado):
@@ -1261,7 +1261,7 @@ def render_consola(estado):
         c1.markdown(f'<span class="sd-cola-titulo">Consola</span> &nbsp; {_insignia(texto_estado, clase)}', unsafe_allow_html=True)
         c2.download_button("Descargar log", data="".join(estado["log_lines"]), file_name="consola.txt", mime="text/plain",
                            icon=":material/download:", key="descargar_consola", use_container_width=True)
-        st.markdown(html_consola(estado["log_lines"]), unsafe_allow_html=True)
+        st.markdown(html_consola(estado["log_lines"], grande=_vista_parametros(estado) != "completa"), unsafe_allow_html=True)   # con los parámetros plegados, la consola ocupa el alto que queda
         carpeta = _carpeta_de_salida(estado)
         if carpeta:
             st.caption(f"📁 Capturas, HTML y consola.log de esta corrida: `{carpeta}`")

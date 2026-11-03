@@ -206,14 +206,16 @@ class App(unittest.TestCase):
         at = self.app()
         self.assertIn("Tourplan: <b>producción</b>", self.textos(at))
 
-    def test_abortar_esta_al_lado_de_refrescar_y_no_en_la_tarjeta(self):
+    def test_abortar_solo_esta_en_la_barra_de_progreso(self):
         self.configurar()
         at = self.app()
         claves = [b.key for b in at.button]
-        self.assertIn("abortar_cola", claves)
+        self.assertNotIn("abortar_cola", claves)                                                       # ni en la barra lateral
+        self.assertNotIn("abortar_franja", claves)                                                     # ni en la franja
         self.assertNotIn("abortar_tarjeta", claves)
-        self.assertLess(claves.index("refrescar"), claves.index("abortar_cola"))                     # Abortar a la derecha de Refrescar
-        self.assertTrue(self.boton(at, "abortar_cola").disabled)                                      # sin corrida no se puede abortar
+        run_dir = Path(tempfile.mkdtemp())
+        at = self.app(estado_falso(running=True, run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag", modo="aplicar", foto=dict(self.FOTO)))
+        self.assertEqual([b.key for b in at.button if b.key and b.key.startswith("abortar")], ["abortar_barra"])
 
     def test_la_confirmacion_de_aplicar_no_se_borra_al_ejecutar_sino_al_terminar(self):
         self.configurar()
@@ -294,7 +296,6 @@ class App(unittest.TestCase):
         self.assertTrue(self.boton(at, "refrescar").disabled)
         self.assertNotIn("ejecutar_revision", [b.key for b in at.button])                              # los parámetros se reemplazan por la franja resumen
         self.assertFalse(self.boton(at, "abortar_barra").disabled)
-        self.assertFalse(self.boton(at, "abortar_franja").disabled)
         self.assertIn("Los parámetros ya están completos: se ocultan mientras corre.", self.textos(at))
         self.assertFalse([g for g in at.get("button_group") if g.key in ("origen", "modo", "tipo_reservas")])
 
@@ -548,7 +549,6 @@ class App(unittest.TestCase):
         self.assertIn("Usuario: <b>daiana</b>", self.textos(at))
         self.assertFalse(self.boton(at, "ejecutar_revision").disabled)
         self.assertEqual(at.session_state["modo"], "lectura")
-        self.assertTrue(self.boton(at, "abortar_cola").disabled)                                      # Abortar deshabilitado sin corrida
         self.assertNotIn("rep_pre", [u.key for u in at.get("file_uploader")])                           # el PRE se pide solo en Aplicar
         self.assertNotIn("pudo_types", [t.key for t in at.text_input])                                  # Service Types ya no se configura en pantalla
 
@@ -560,11 +560,11 @@ class App(unittest.TestCase):
         run_dir = Path(tempfile.mkdtemp())
         at = self.app(estado_falso(running=True, run_dir=run_dir, stop_file=run_dir / "ABORTAR.flag", modo="aplicar", foto=dict(self.FOTO)))
         t = self.textos(at)
-        self.assertIn("APLICANDO", t)
         self.assertIn("3 combinaciones · Fechas 01/12/2026 – 31/12/2026 · PRE pre_x.csv · daiana", t)
         self.assertNotIn("Requisitos", t)                                                              # sin requisitos en rojo mientras corre
-        self.boton(at, "abortar_franja").click().run()
-        self.assertTrue(self.boton(at, "abortar_franja").disabled)                                    # abortar desde la franja igual que desde la barra
+        self.assertIn('class="sd-consola grande"', t)                                                  # consola más alta con los parámetros plegados
+        self.boton(at, "abortar_barra").click().run()
+        self.assertTrue(self.boton(at, "abortar_barra").disabled)
 
     def _terminada(self, pend_tipo, **kw):
         self.configurar()
