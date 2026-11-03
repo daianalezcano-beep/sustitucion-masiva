@@ -108,7 +108,7 @@ class FlujoAplicar(unittest.TestCase):
             m.eventos.append("confirmar")
             return m.cancela_en is None
 
-        def ok_summary(driver, etiqueta):
+        def ok_summary(driver, etiqueta, n_reservas=0):
             m.eventos.append(f"OK {etiqueta}")
             if m.falla_en == etiqueta:
                 raise sd.ErrorFila("ERROR: summary", "no apareció el summary")
@@ -274,7 +274,7 @@ class FlujoAplicar(unittest.TestCase):
         self.preparar(m)
         ok_normal = sd.ok_modal_y_summary
 
-        def ok(driver, etiqueta):
+        def ok(driver, etiqueta, n_reservas=0):
             if etiqueta == "ida" and m.filtro == "CX":        # Tourplan responde con error y la reserva sigue en el original
                 m.eventos.append("OK ida (con error)")
                 return "summary con error"
@@ -439,7 +439,7 @@ class FlujoAplicar(unittest.TestCase):
         m = Mundo([fila("R1")])
         self.preparar(m)
         original = sd.ok_modal_y_summary
-        sd.ok_modal_y_summary = lambda d, e: (_ for _ in ()).throw(KeyError("boom")) if e == "vuelta" else original(d, e)
+        sd.ok_modal_y_summary = lambda d, e, n=0: (_ for _ in ()).throw(KeyError("boom")) if e == "vuelta" else original(d, e, n)
         with self.assertRaises(sd.ErrorFila) as cm:
             sd.procesar_fila_aplicar(None, self.ctx, {"LOCATION": "BUE", "SUPPLIER": "1ACOS1", "SERVICE TYPE": "GU", "CODIGO": "700GUI"})
         self.assertEqual(cm.exception.estado, "ERROR_COLGADAS")

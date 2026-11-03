@@ -1345,6 +1345,9 @@ def render_historial(estado):
 
 def render_lateral(estado, sheet_url):
     """Barra lateral derecha: pestañas «Cola» e «Historial» (es un fragment: cambiar de pestaña no toca la corrida)."""
+    url_sheet = _sheet_url_guardada()
+    st.link_button("📄 Abrir Sheet", url_sheet or "https://docs.google.com", disabled=not url_sheet, use_container_width=True, key="abrir_sheet",
+                   help="Abre el Google Sheet de trabajo en una pestaña nueva" if url_sheet else "Cargá la URL del Sheet en ⚙️ Configuración")
     st.segmented_control("Barra lateral", ["cola", "historial"], key="lateral", default="cola", required=True, label_visibility="collapsed",
                          width="stretch", format_func=lambda k: "Cola" if k == "cola" else "Historial")
     if st.session_state.get("lateral") == "historial":

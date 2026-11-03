@@ -1218,13 +1218,20 @@ def llenar_modal(driver, loc, stype, sup, cod, status, pudo, etiqueta):
           f"Voucher Text tildados" + (" | pickup/drop-off repuestos" if pudo else ""))
 
 
-def ok_modal_y_summary(driver, etiqueta):
-    """OK del modal -> Summary: vuelca su HTML y su texto (aún no sabemos qué muestra) y lo cierra con su OK."""
+def segundos_espera_summary(n_reservas):
+    """Cuánto esperar (antes de multiplicar por VELOCIDAD) a que aparezca el Summary tras el OK del modal. Tourplan tarda más cuantas más reservas mueve:
+    con 7 reservas tardó ~12 s la ida y ~4 s la vuelta; con 47, más de 45 s (la espera fija de 30 s vencía y la corrida quedaba a medio hacer, ERROR_COLGADAS).
+    Mínimo 30 s; 6 s por reserva; tope de 15 min (el sondeo termina apenas aparece el Summary, así que esperar de más no cuesta nada)."""
+    return min(max(30, 6 * int(n_reservas or 0)), 900)
+
+
+def ok_modal_y_summary(driver, etiqueta, n_reservas=0):
+    """OK del modal -> Summary: vuelca su HTML y su texto (aún no sabemos qué muestra) y lo cierra con su OK. `n_reservas`: cuántas reservas se mueven (define la espera)."""
     btn = dialog_repl(driver).find_element(By.CSS_SELECTOR, "tp-button.ok > button")
     if not btn.is_enabled():
         raise ErrorFila("ERROR: OK deshabilitado", "El OK del modal Replacement Service está deshabilitado")
     jc(driver, btn)
-    dlg = esperar(lambda: dialog_summary(driver), 30)
+    dlg = esperar(lambda: dialog_summary(driver), segundos_espera_summary(n_reservas))
     if dlg is None:
         raise ErrorFila("ERROR: summary", "No apareció tp-process-summary tras el OK del modal")
     JS_TEXTO = "return (arguments[0].innerText || '').replace(/\\s+/g, ' ').trim();"
@@ -1336,7 +1343,7 @@ def procesar_grupo(driver, ctx, loc, sup, stype, cod, psup, pcod, status, filas_
     rango = (ini, fin)
     obs = []
     try:
-        obs.append(f"[{status}] summary ida: " + ok_modal_y_summary(driver, "ida"))
+        obs.append(f"[{status}] summary ida: " + ok_modal_y_summary(driver, "ida", found0))
         _fase_rango(ctx, rango, "IDA")
 
         # 3) Verificar P: lo que se movió es un subconjunto exacto de lo que se leyó en A
@@ -1358,7 +1365,7 @@ def procesar_grupo(driver, ctx, loc, sup, stype, cod, psup, pcod, status, filas_
         seleccionar_todo(driver, found1)
         abrir_modal_reemplazo(driver, found1)
         llenar_modal(driver, loc, stype, sup, cod, status, pudo0 if reponer else None, "vuelta")
-        obs.append(f"[{status}] summary vuelta: " + ok_modal_y_summary(driver, "vuelta"))
+        obs.append(f"[{status}] summary vuelta: " + ok_modal_y_summary(driver, "vuelta", found1))
         _fase_rango(ctx, rango, "VUELTA")
 
         # 5) Verificación final contra la foto inicial del grupo (las columnas incluyen la celda PU/DO completa)

@@ -629,6 +629,17 @@ class App(unittest.TestCase):
         self.assertTrue(self.boton(at, "ejecutar_aplicar").disabled)
         self.assertEqual(at.session_state["_pre_n"], 1)                                                # el cargador del PRE arranca vacío (clave nueva)
 
+    def test_boton_abrir_sheet_en_la_barra_lateral(self):
+        self.configurar("https://docs.google.com/spreadsheets/d/XYZ/edit")
+        at = self.app()
+        botones = [b for b in at.get("link_button") if b.key == "abrir_sheet"]
+        self.assertEqual(len(botones), 1)
+        self.assertEqual(botones[0].proto.url, "https://docs.google.com/spreadsheets/d/XYZ/edit")
+        self.assertFalse(botones[0].proto.disabled)
+        at.session_state["lateral"] = "historial"
+        at.run()
+        self.assertEqual(len([b for b in at.get("link_button") if b.key == "abrir_sheet"]), 1)      # sigue en la pestaña Historial
+
     def test_requisitos_compactos_y_detalle_plegable(self):
         self.configurar()
         filas = [{"ESTADO": "PENDIENTE", "TIPO": "FITS"}]
